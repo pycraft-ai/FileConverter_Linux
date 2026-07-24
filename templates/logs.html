@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+{% block title %}操作日志{% endblock %}
+{% block content %}
+<div class="main-container">
+    <!-- 页面标题 -->
+    <div class="welcome-banner animate-fade-in">
+        <div class="banner-content">
+            <h1 class="banner-title">
+                <i class="fas fa-history me-3"></i>
+                转换操作日志
+            </h1>
+            <p class="banner-subtitle">查看所有文件转换操作的详细记录</p>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-12">
+            <!-- 筛选和统计卡片 -->
+            <div class="glass-effect mb-4 animate-slide-left">
+                <div class="row align-items-center">
+                    <div class="col-md-6">
+                        <form method="GET" action="{{ url_for('admin.view_logs') }}" class="d-flex gap-2">
+                            <input type="text" 
+                                   name="username" 
+                                   class="form-control" 
+                                   placeholder="输入用户名筛选..."
+                                   value="{{ username_filter }}"
+                                   style="background: rgba(255,255,255,0.8); border: 1px solid rgba(0,0,0,0.15); color: #333;">
+                            <button type="submit" class="btn btn-gradient">
+                                <i class="fas fa-search me-1"></i>搜索
+                            </button>
+                            {% if username_filter %}
+                            <a href="{{ url_for('admin.view_logs') }}" class="btn btn-outline-light">
+                                <i class="fas fa-times"></i>清除
+                            </a>
+                            {% endif %}
+                        </form>
+                    </div>
+                    <div class="col-md-6 text-md-end mt-3 mt-md-0">
+                        <span class="badge-mode-count">
+                            <i class="fas fa-database me-1"></i>
+                            共 {{ total_count }} 条记录
+                        </span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 日志表格 -->
+            <div class="glass-effect animate-slide-right">
+                {% if logs %}
+                <div class="table-responsive">
+                    <table class="table table-dark table-hover align-middle">
+                        <thead>
+                            <tr>
+                                <th style="width: 60px;"><i class="fas fa-hashtag me-1"></i>ID</th>
+                                <th><i class="fas fa-user me-1"></i>用户名</th>
+                                <th><i class="fas fa-cog me-1"></i>转换模式</th>
+                                <th><i class="fas fa-file me-1"></i>文件名</th>
+                                <th style="width: 100px;"><i class="fas fa-check-circle me-1"></i>状态</th>
+                                <th><i class="fas fa-comment me-1"></i>消息</th>
+                                <th style="width: 180px;"><i class="fas fa-clock me-1"></i>操作时间</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for log in logs %}
+                            <tr>
+                                <td><strong>{{ log['id'] }}</strong></td>
+                                <td>
+                                    <span class="badge" style="background: rgba(102, 126, 234, 0.2); color: #667eea;">
+                                        <i class="fas fa-user me-1"></i>{{ log['username'] }}
+                                    </span>
+                                </td>
+                                <td>
+                                    <span class="badge" style="background: rgba(118, 75, 162, 0.2); color: #a78bfa;">
+                                        {{ log['mode'] }}
+                                    </span>
+                                </td>
+                                <td>
+                                    <small class="text-truncate d-inline-block" style="max-width: 300px;" title="{{ log['filename'] }}">
+                                        {{ log['filename'] or '—' }}
+                                    </small>
+                                </td>
+                                <td>
+                                    {% if log['success'] %}
+                                    <span class="badge bg-success">
+                                        <i class="fas fa-check me-1"></i>成功
+                                    </span>
+                                    {% else %}
+                                    <span class="badge bg-danger">
+                                        <i class="fas fa-times me-1"></i>失败
+                                    </span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <small class="text-muted">{{ log['message'] or '—' }}</small>
+                                </td>
+                                <td>
+                                    <small>
+                                        <i class="fas fa-calendar-alt me-1 text-info"></i>
+                                        {{ log['operation_time'] }}
+                                    </small>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- 分页 -->
+                {% if total_pages > 1 %}
+                <nav class="mt-4">
+                    <ul class="pagination justify-content-center">
+                        {% if page > 1 %}
+                        <li class="page-item">
+                            <a class="page-link" href="{{ url_for('admin.view_logs', page=page-1, per_page=per_page, username=username_filter) }}">
+                                <i class="fas fa-chevron-left"></i>
+                            </a>
+                        </li>
+                        {% endif %}
+                        
+                        {% for p in range(1, total_pages + 1) %}
+                            {% if p == page %}
+                            <li class="page-item active">
+                                <span class="page-link">{{ p }}</span>
+                            </li>
+                            {% elif p <= 3 or p > total_pages - 3 or (p >= page - 1 and p <= page + 1) %}
+                            <li class="page-item">
+                                <a class="page-link" href="{{ url_for('admin.view_logs', page=p, per_page=per_page, username=username_filter) }}">
+                                    {{ p }}
+                                </a>
+                            </li>
+                            {% elif p == 4 or p == total_pages - 3 %}
+                            <li class="page-item disabled">
+                                <span class="page-link">...</span>
+                            </li>
+                            {% endif %}
+                        {% endfor %}
+                        
+                        {% if page < total_pages %}
+                        <li class="page-item">
+                            <a class="page-link" href="{{ url_for('admin.view_logs', page=page+1, per_page=per_page, username=username_filter) }}">
+                                <i class="fas fa-chevron-right"></i>
+                            </a>
+                        </li>
+                        {% endif %}
+                    </ul>
+                </nav>
+                {% endif %}
+
+                {% else %}
+                <div class="text-center py-5">
+                    <i class="fas fa-inbox fa-4x text-muted mb-3"></i>
+                    <h5 class="text-muted">暂无日志记录</h5>
+                    <p class="text-muted small">当用户进行文件转换时，这里会显示操作记录</p>
+                </div>
+                {% endif %}
+            </div>
+
+            <!-- 返回按钮 -->
+            <div class="mt-4">
+                <a href="{{ url_for('admin.admin_panel') }}" class="btn-action admin">
+                    <i class="fas fa-arrow-left me-2"></i>
+                    <span>返回管理面板</span>
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+$(document).ready(function() {
+    // 自动刷新（每30秒）
+    setTimeout(function() {
+        location.reload();
+    }, 30000);
+});
+</script>
+{% endblock %}

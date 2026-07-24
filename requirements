@@ -1,0 +1,14 @@
+flask
+mysql-connector-python
+pandas
+pytesseract
+Pillow
+pdf2docx
+pdf2image
+pdfminer.six
+python-pptx
+PyPDF2
+Werkzeug
+requests
+markdown
+python-dotenv

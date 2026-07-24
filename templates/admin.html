@@ -1,0 +1,214 @@
+{% extends "base.html" %}
+{% block title %}管理员面板{% endblock %}
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <div class="glass-card p-4">
+            <div class="d-flex align-items-center mb-4">
+                <div class="section-icon me-2" style="background: linear-gradient(135deg, #f093fb, #f5576c);">
+                    <i class="fas fa-shield-alt"></i>
+                </div>
+                <h4 class="fw-bold mb-0">
+                    <i class="fas fa-crown me-2"></i>管理员面板
+                </h4>
+                <div class="ms-auto d-flex gap-2">
+                    <a href="{{ url_for('admin.ip_analysis') }}" class="btn btn-gradient">
+                        <i class="fas fa-chart-line me-2"></i>IP分析
+                    </a>
+                    <a href="{{ url_for('admin.manage_announcements') }}" class="btn btn-gradient">
+                        <i class="fas fa-bullhorn me-2"></i>公告管理
+                    </a>
+                    <a href="{{ url_for('admin.view_logs') }}" class="btn btn-gradient">
+                        <i class="fas fa-history me-2"></i>查看操作日志
+                    </a>
+                </div>
+            </div>
+
+            <!-- 用户表格 -->
+            <div class="table-responsive">
+                <table class="table table-dark table-hover align-middle">
+                    <thead>
+                        <tr class="table-header-row">
+                            <th><i class="fas fa-user me-1"></i>用户名</th>
+                            <th><i class="fas fa-envelope me-1"></i>邮箱</th>
+                            <th><i class="fas fa-user-tag me-1"></i>角色</th>
+                            <th><i class="fas fa-ban me-1"></i>状态</th>
+                            <th><i class="fas fa-calendar me-1"></i>过期时间</th>
+                            <th><i class="fas fa-bolt me-1"></i>剩余次数</th>
+                            <th><i class="fas fa-tools me-1"></i>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for user in users %}
+                        <tr class="table-row-hover">
+                            <td class="fw-bold">{{ user['username'] }}</td>
+                            <td><small>{{ user['email'] }}</small></td>
+                            <td>
+                                {% if user['is_admin'] %}
+                                <span class="badge-glow" style="font-size: 12px;">管理员</span>
+                                {% else %}
+                                <span class="badge" style="background: rgba(108,117,125,0.3); color: #adb5bd;">用户</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if user['is_block'] %}
+                                <span class="badge bg-danger"><i class="fas fa-lock me-1"></i>已封禁</span>
+                                {% else %}
+                                <span class="badge" style="background: rgba(25,135,84,0.3); color: #75b798;">
+                                    <i class="fas fa-unlock me-1"></i>正常
+                                </span>
+                                {% endif %}
+                            </td>
+                            <td><small>{{ user['expiration_date'] }}</small></td>
+                            <td><strong>{{ user['remaining_times'] }}</strong></td>
+                            <td>
+                                {% if not user['is_admin'] %}
+                                <button class="btn btn-sm action-btn block-btn"
+                                        style="border-color: #dc3545; color: #dc3545;"
+                                        data-username="{{ user['username'] }}">
+                                    <i class="fas fa-{{ 'unlock' if user['is_block'] else 'lock' }}"></i>
+                                    {{ '解封' if user['is_block'] else '封禁' }}
+                                </button>
+                                <button class="btn btn-sm action-btn renew-btn"
+                                        style="border-color: #0dcaf0; color: #0dcaf0;"
+                                        data-username="{{ user['username'] }}">
+                                    <i class="fas fa-clock"></i> 续期
+                                </button>
+                                <button class="btn btn-sm action-btn times-btn"
+                                        style="border-color: #198754; color: #198754;"
+                                        data-username="{{ user['username'] }}">
+                                    <i class="fas fa-plus-circle"></i> 充值
+                                </button>
+                                {% else %}
+                                <span class="text-muted"><small>—</small></span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 续期对话框 -->
+<div class="modal fade" id="renewModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content glass-modal">
+            <div class="modal-header border-0">
+                <h5 class="modal-title"><i class="fas fa-clock me-2"></i>续期</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="renewForm">
+                    <input type="hidden" id="renewUsername">
+                    <div class="mb-3">
+                        <label class="form-label">续期天数</label>
+                        <input type="number" class="form-control" id="renewDays" value="30" min="1">
+                    </div>
+                    <button type="submit" class="btn btn-gradient w-100">确认续期</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 充值对话框 -->
+<div class="modal fade" id="timesModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content glass-modal">
+            <div class="modal-header border-0">
+                <h5 class="modal-title"><i class="fas fa-plus-circle me-2"></i>充值次数</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="timesForm">
+                    <input type="hidden" id="timesUsername">
+                    <div class="mb-3">
+                        <label class="form-label">增加次数</label>
+                        <input type="number" class="form-control" id="timesCount" value="10" min="1">
+                    </div>
+                    <button type="submit" class="btn btn-gradient w-100">确认充值</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+$(document).ready(function() {
+    // 封禁/解封
+    $('.block-btn').click(function() {
+        const username = $(this).data('username');
+        if (!confirm('确认要操作用户 ' + username + ' 的封禁状态吗？')) return;
+
+        $.post('{{ url_for("admin.block_user") }}',
+            { username: username },
+            function(response) {
+                showAdminToast(response.message, response.success);
+                if (response.success) setTimeout(() => location.reload(), 1000);
+            }
+        );
+    });
+
+    // 续期
+    $('.renew-btn').click(function() {
+        $('#renewUsername').val($(this).data('username'));
+        $('#renewModal').modal('show');
+    });
+
+    $('#renewForm').submit(function(e) {
+        e.preventDefault();
+        $.post('{{ url_for("admin.renew_user") }}',
+            {
+                username: $('#renewUsername').val(),
+                days: $('#renewDays').val()
+            },
+            function(response) {
+                showAdminToast(response.message, response.success);
+                if (response.success) {
+                    $('#renewModal').modal('hide');
+                    setTimeout(() => location.reload(), 1000);
+                }
+            }
+        );
+    });
+
+    // 充值次数
+    $('.times-btn').click(function() {
+        $('#timesUsername').val($(this).data('username'));
+        $('#timesModal').modal('show');
+    });
+
+    $('#timesForm').submit(function(e) {
+        e.preventDefault();
+        $.post('{{ url_for("admin.increase_times") }}',
+            {
+                username: $('#timesUsername').val(),
+                times: $('#timesCount').val()
+            },
+            function(response) {
+                showAdminToast(response.message, response.success);
+                if (response.success) {
+                    $('#timesModal').modal('hide');
+                    setTimeout(() => location.reload(), 1000);
+                }
+            }
+        );
+    });
+
+    function showAdminToast(msg, success) {
+        const icon = success ? 'check-circle' : 'exclamation-circle';
+        const cls = success ? 'success' : 'danger';
+        const $alert = $('<div class="alert alert-' + cls + ' alert-dismissible fade show position-fixed top-0 start-50 translate-middle-x mt-5" style="z-index:99999;">' +
+            '<i class="fas fa-' + icon + ' me-2"></i>' + msg +
+            '<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>');
+        $('body').append($alert);
+        setTimeout(() => $alert.alert('close'), 3000);
+    }
+});
+</script>
+{% endblock %}

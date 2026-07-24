@@ -1,0 +1,534 @@
+{% extends "base.html" %}
+{% block title %}文件转化工具 - 主页{% endblock %}
+{% block content %}
+<style>
+    /* ===== 新布局样式 ===== */
+    .main-wrap { max-width: 960px; margin: 0 auto; }
+    
+    /* 顶部用户条 */
+    .top-bar {
+        display: flex; align-items: center; justify-content: space-between;
+        background: #fff; border-radius: 12px; padding: 16px 24px;
+        box-shadow: 0 1px 3px rgba(0,0,0,.06); margin-bottom: 20px;
+    }
+    .top-bar .user-left { display: flex; align-items: center; gap: 16px; }
+    .top-bar .avatar {
+        width: 42px; height: 42px; border-radius: 50%;
+        background: linear-gradient(135deg,#667eea,#764ba2);
+        display: flex; align-items: center; justify-content: center; color: #fff; font-size: 18px;
+    }
+    .top-bar .user-name { font-weight: 600; font-size: 15px; }
+    .top-bar .user-role-tag {
+        font-size: 11px; background: #f0f0ff; color: #667eea;
+        padding: 2px 10px; border-radius: 10px; margin-left: 6px;
+    }
+    .top-bar .stat-badge {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 500;
+    }
+    .top-bar .stat-badge.times { background: #f0f7ff; color: #2563eb; }
+    .top-bar .stat-badge.time { background: #fff7ed; color: #ea580c; }
+    .top-bar .stat-badge .num { font-size: 20px; font-weight: 700; }
+    .top-bar .stat-badge.warn { background: #fef2f2; color: #dc2626; }
+    .top-bar .top-actions { display: flex; gap: 8px; }
+    .top-bar .top-actions a {
+        padding: 7px 14px; border-radius: 8px; font-size: 13px; text-decoration: none;
+        transition: all .2s;
+    }
+    .top-bar .btn-out { color: #666; background: #f5f5f5; }
+    .top-bar .btn-out:hover { background: #fee2e2; color: #dc2626; }
+    .top-bar .btn-admin { color: #fff; background: #667eea; }
+    .top-bar .btn-admin:hover { background: #5a6fd6; }
+
+    /* 公告 */
+    .announce-bar {
+        background: #fffbe6; border: 1px solid #fde68a; border-radius: 10px;
+        padding: 12px 18px; margin-bottom: 16px; display: flex; align-items: center; gap: 10px;
+    }
+    .announce-bar .close-ann { margin-left: auto; cursor: pointer; color: #999; border: none; background: none; }
+
+    /* 模式选择区 */
+    .section-card {
+        background: #fff; border-radius: 14px; padding: 24px;
+        box-shadow: 0 1px 4px rgba(0,0,0,.05); margin-bottom: 20px;
+    }
+    .section-title {
+        font-size: 16px; font-weight: 700; color: #1e293b;
+        margin-bottom: 16px; display: flex; align-items: center; gap: 8px;
+    }
+    .mode-cat { margin-bottom: 12px; }
+    .mode-cat-label {
+        font-size: 11px; font-weight: 600; color: #94a3b8; text-transform: uppercase;
+        letter-spacing: .5px; margin-bottom: 6px;
+    }
+    .mode-row { display: flex; flex-wrap: wrap; gap: 8px; }
+    .mode-chip {
+        position: relative; cursor: pointer;
+    }
+    .mode-chip input { position: absolute; opacity: 0; pointer-events: none; }
+    .mode-chip .chip-label {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 8px 14px; border-radius: 8px; border: 1.5px solid #e5e7eb;
+        font-size: 13px; color: #64748b; font-weight: 500;
+        transition: all .15s; background: #fafafa; user-select: none;
+    }
+    .mode-chip .chip-label:hover { border-color: #667eea; color: #667eea; background: #f5f3ff; }
+    .mode-chip input:checked + .chip-label {
+        border-color: #667eea; background: #eef2ff; color: #4f46e5; font-weight: 600;
+        box-shadow: 0 0 0 3px rgba(102,126,234,.15);
+    }
+    .mode-chip .chip-icon { font-size: 15px; width: 20px; text-align: center; }
+
+    /* 上传区 */
+    .upload-box {
+        border: 2px dashed #d1d5db; border-radius: 14px; padding: 40px 20px;
+        text-align: center; transition: all .2s; background: #fafbfc;
+        cursor: pointer;
+    }
+    .upload-box:hover, .upload-box.drag-over { border-color: #667eea; background: #eef2ff; }
+    .upload-box .upload-icon { font-size: 42px; color: #667eea; margin-bottom: 12px; }
+    .upload-box .upload-text { font-size: 15px; color: #374151; font-weight: 500; }
+    .upload-box .upload-hint { font-size: 12px; color: #9ca3af; margin-top: 4px; }
+    .upload-box .select-btn {
+        display: inline-block; margin-top: 16px; padding: 10px 28px;
+        background: #667eea; color: #fff; border: none; border-radius: 8px;
+        font-size: 14px; font-weight: 600; cursor: pointer; transition: all .2s;
+    }
+    .upload-box .select-btn:hover { background: #5a6fd6; transform: translateY(-1px); }
+
+    .file-input-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
+
+    /* 文件列表 */
+    .file-items { margin-top: 12px; display: none; }
+    .file-items.show { display: block; }
+    .file-items-header {
+        display: flex; align-items: center; justify-content: space-between;
+        font-size: 13px; color: #6b7280; margin-bottom: 8px;
+    }
+    .file-item {
+        display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+        background: #f9fafb; border-radius: 8px; margin-bottom: 4px; font-size: 13px;
+    }
+    .file-item .fi-name { flex: 1; color: #374151; }
+    .file-item .fi-size { color: #9ca3af; font-size: 11px; }
+    .file-item .fi-remove { color: #ef4444; cursor: pointer; font-size: 14px; opacity: .6; }
+    .file-item .fi-remove:hover { opacity: 1; }
+
+    /* 操作按钮 */
+    .btn-convert {
+        width: 100%; padding: 14px; background: linear-gradient(135deg,#667eea,#764ba2);
+        color: #fff; border: none; border-radius: 12px; font-size: 15px; font-weight: 700;
+        cursor: pointer; transition: all .2s; margin-top: 16px;
+    }
+    .btn-convert:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(102,126,234,.35); }
+    .btn-convert:disabled { opacity: .5; cursor: not-allowed; }
+
+    /* 结果区 */
+    .result-block { display: none; margin-top: 16px; }
+    .result-block.show { display: block; }
+    .progress-wrap {
+        height: 8px; background: #e5e7eb; border-radius: 4px; overflow: hidden; margin-bottom: 12px;
+    }
+    .progress-fill {
+        height: 100%; background: linear-gradient(90deg,#667eea,#764ba2);
+        border-radius: 4px; width: 0; transition: width .3s;
+    }
+    .result-msg {
+        padding: 10px 16px; border-radius: 8px; font-size: 13px; margin-bottom: 10px;
+    }
+    .result-msg.success { background: #ecfdf5; color: #065f46; }
+    .result-msg.error { background: #fef2f2; color: #991b1b; }
+    .btn-dl {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 10px 24px; background: #10b981; color: #fff; border-radius: 8px;
+        text-decoration: none; font-weight: 600; font-size: 14px; transition: all .2s;
+    }
+    .btn-dl:hover { background: #059669; color: #fff; }
+    .btn-dl.hidden { display: none; }
+
+    /* Toast */
+    .custom-toast {
+        position: fixed; top: 80px; left: 50%; transform: translateX(-50%);
+        padding: 12px 24px; border-radius: 10px; font-size: 14px; font-weight: 500;
+        z-index: 9999; box-shadow: 0 4px 20px rgba(0,0,0,.15); animation: toastIn .3s;
+    }
+    @keyframes toastIn { from { opacity: 0; transform: translateX(-50%) translateY(-10px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+</style>
+
+<div class="main-wrap">
+    <!-- 顶部用户信息条 -->
+    <div class="top-bar">
+        <div class="user-left">
+            <div class="avatar"><i class="fas fa-user"></i></div>
+            <div>
+                <span class="user-name">{{ user['username'] }}</span>
+                <span class="user-role-tag">
+                    {% if user.get('is_admin') %}<i class="fas fa-crown"></i> 管理员
+                    {% else %}<i class="fas fa-user-circle"></i> 普通用户{% endif %}
+                </span>
+            </div>
+            {% if login_type == 'times' %}
+            <span class="stat-badge times {% if user['remaining_times'] <= 5 %}warn{% endif %}">
+                <span class="num" id="remainingTimes">{{ user['remaining_times'] }}</span> 次剩余
+            </span>
+            {% else %}
+            <span class="stat-badge time">{{ user['expiration_date'] }} 到期</span>
+            {% endif %}
+        </div>
+        <div class="top-actions">
+            <a href="{{ url_for('converter.contact') }}" class="btn-out"><i class="fas fa-envelope"></i> 联系</a>
+            <a href="{{ url_for('auth.logout') }}" class="btn-out"><i class="fas fa-sign-out-alt"></i> 退出</a>
+            {% if user.get('is_admin') %}
+            <a href="{{ url_for('admin.admin_panel') }}" class="btn-admin"><i class="fas fa-shield-alt"></i> 管理</a>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- 公告 -->
+    {% if announcements %}
+    {% for ann in announcements %}
+    <div class="announce-bar">
+        <i class="fas fa-bullhorn text-warning"></i>
+        <span><strong>{{ ann['title'] }}</strong> — {{ ann['content'] }}</span>
+        <button class="close-ann" onclick="this.parentElement.remove()"><i class="fas fa-times"></i></button>
+    </div>
+    {% endfor %}
+    {% endif %}
+
+    <!-- 模式选择 -->
+    <div class="section-card">
+        <div class="section-title"><i class="fas fa-exchange-alt" style="color:#667eea;"></i> 选择转换模式</div>
+        
+        {% set office_modes = ['word转pdf','pdf转word','excel转pdf','ppt转pdf','csv转excel','excel转csv'] %}
+        {% set text_modes = ['md转pdf','html转pdf','PDF OCR识别','图片OCR识别'] %}
+        {% set media_modes = ['图片转pdf','pdf转图片','图片转ppt','pdf合并'] %}
+        
+        <div class="mode-cat">
+            <div class="mode-cat-label">📎 Office 文档</div>
+            <div class="mode-row">
+                {% for mode in modes if mode in office_modes %}
+                {% include "mode_chip.html" %}
+                {% endfor %}
+            </div>
+        </div>
+        <div class="mode-cat">
+            <div class="mode-cat-label">📝 文本 / OCR</div>
+            <div class="mode-row">
+                {% for mode in modes if mode in text_modes %}
+                {% include "mode_chip.html" %}
+                {% endfor %}
+            </div>
+        </div>
+        <div class="mode-cat">
+            <div class="mode-cat-label">🖼️ 图片 / 媒体</div>
+            <div class="mode-row">
+                {% for mode in modes if mode in media_modes %}
+                {% include "mode_chip.html" %}
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <!-- 上传区域 -->
+    <div class="section-card" id="uploadZone">
+        <div class="section-title"><i class="fas fa-cloud-upload-alt" style="color:#667eea;"></i> 上传文件</div>
+        <div class="upload-box" id="dropZone">
+            <div class="upload-icon"><i class="fas fa-cloud-upload-alt"></i></div>
+            <div class="upload-text">拖拽文件到此处，或点击下方按钮</div>
+            <div class="upload-hint" id="fileHint">请先选择转换模式</div>
+            <button type="button" class="select-btn" id="selectFileBtn">
+                <i class="fas fa-folder-open me-1"></i> 选择文件
+            </button>
+        </div>
+
+        <form id="convertForm" enctype="multipart/form-data">
+            <input class="file-input-hidden" type="file" id="fileInput" name="file" accept="*/*" multiple>
+            <div id="filesInputArea" style="display:none;">
+                <input class="file-input-hidden" type="file" id="filesInput" name="files" multiple>
+            </div>
+        </form>
+
+        <!-- 文件列表 -->
+        <div class="file-items" id="fileList">
+            <div class="file-items-header">
+                <span><i class="fas fa-paperclip me-1"></i>已选文件</span>
+                <span id="fileCount">0 个文件</span>
+            </div>
+            <div id="fileListItems"></div>
+        </div>
+
+        <!-- 转换按钮 -->
+        <button type="button" class="btn-convert" id="convertBtn" disabled>
+            <i class="fas fa-magic me-2"></i>开始转换
+        </button>
+
+        <!-- 结果区 -->
+        <div class="result-block" id="resultArea">
+            <div class="progress-wrap">
+                <div class="progress-fill" id="progressFill"></div>
+            </div>
+            <div class="result-msg" id="resultMessage" style="display:none;"></div>
+            <a class="btn-dl hidden" id="downloadBtn"><i class="fas fa-download"></i> 下载文件</a>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+$(document).ready(function() {
+    let _prevInputType = null;
+
+    // ===== 选择文件按钮 =====
+    $('#selectFileBtn').on('click', function() {
+        const inputType = $('input[name="mode"]:checked').data('input-type');
+        if (inputType === 'file') {
+            $('#fileInput').click();
+        } else {
+            $('#filesInput').click();
+        }
+    });
+
+    // ===== 点击拖拽区域也可以触发选择 =====
+    $('#dropZone').on('click', function(e) {
+        if (e.target === this || $(e.target).closest('#selectFileBtn').length === 0) {
+            $('#selectFileBtn').trigger('click');
+        }
+    });
+
+    // ===== 模式切换 =====
+    $(document).on('change', '.mode-radio', function() {
+        const inputType = $(this).data('input-type');
+        const prevFileInputFiles = document.getElementById('fileInput').files;
+        const prevFilesInputFiles = document.getElementById('filesInput').files;
+
+        let hasOldFiles = prevFileInputFiles.length > 0 || prevFilesInputFiles.length > 0;
+
+        // 提示文字
+        const hints = {
+            'file': '可一次选择多个文件，批量转换自动打包下载',
+            'files': '按住 Ctrl 可选择多个 PDF 文件',
+            'directory': '选择文件夹中的所有图片文件'
+        };
+        $('#fileHint').text(hints[inputType] || '请选择合适的文件格式');
+
+        // 判断是否同一输入框
+        const sameInput = (_prevInputType === inputType) ||
+            (_prevInputType === 'files' && inputType === 'directory') ||
+            (_prevInputType === 'directory' && inputType === 'files');
+
+        if (hasOldFiles && !sameInput) {
+            showToast('已更换模式，请重新选择文件');
+            const dt1 = new DataTransfer();
+            document.getElementById('fileInput').files = dt1.files;
+            const dt2 = new DataTransfer();
+            document.getElementById('filesInput').files = dt2.files;
+        }
+
+        _prevInputType = inputType;
+        updateFileList();
+    });
+
+    // ===== 文件选择 =====
+    $('#fileInput, #filesInput').on('change', function() { updateFileList(); });
+
+    function updateFileList() {
+        const inputType = $('input[name="mode"]:checked').data('input-type');
+        let fileArray;
+        if (inputType === 'file') {
+            fileArray = document.getElementById('fileInput').files;
+        } else if (inputType === 'files' || inputType === 'directory') {
+            fileArray = document.getElementById('filesInput').files;
+        } else {
+            const f1 = document.getElementById('fileInput').files;
+            const f2 = document.getElementById('filesInput').files;
+            fileArray = f1.length > 0 ? f1 : f2;
+        }
+
+        const $list = $('#fileList');
+        const $items = $('#fileListItems');
+        const $btn = $('#convertBtn');
+
+        if (fileArray.length > 0) {
+            $list.addClass('show');
+            $items.empty();
+            const iconMap = {
+                'pdf': 'fa-file-pdf', 'doc': 'fa-file-word', 'docx': 'fa-file-word',
+                'xls': 'fa-file-excel', 'xlsx': 'fa-file-excel', 'csv': 'fa-file-csv',
+                'jpg': 'fa-file-image', 'jpeg': 'fa-file-image', 'png': 'fa-file-image',
+                'ppt': 'fa-file-powerpoint', 'pptx': 'fa-file-powerpoint',
+                'txt': 'fa-file-alt', 'md': 'fab fa-markdown',
+                'html': 'fa-code', 'htm': 'fa-code'
+            };
+            const colorMap = {
+                'pdf': '#dc2626', 'doc': '#2563eb', 'docx': '#2563eb',
+                'xls': '#16a34a', 'xlsx': '#16a34a', 'csv': '#0891b2',
+                'jpg': '#ea580c', 'jpeg': '#ea580c', 'png': '#ea580c',
+                'ppt': '#dc2626', 'pptx': '#dc2626', 'txt': '#6b7280',
+                'md': '#0891b2', 'html': '#2563eb', 'htm': '#2563eb'
+            };
+            for (let i = 0; i < fileArray.length; i++) {
+                const ext = fileArray[i].name.split('.').pop().toLowerCase();
+                const icon = iconMap[ext] || 'fa-file';
+                const color = colorMap[ext] || '#94a3b8';
+                $items.append(
+                    '<div class="file-item">' +
+                    '<i class="fas ' + icon + '" style="color:' + color + ';"></i>' +
+                    '<span class="fi-name">' + fileArray[i].name + '</span>' +
+                    '<span class="fi-size">' + (fileArray[i].size / 1024).toFixed(1) + ' KB</span>' +
+                    '</div>'
+                );
+            }
+            $('#fileCount').text(fileArray.length + ' 个文件');
+            $btn.prop('disabled', false);
+        } else {
+            $list.removeClass('show');
+            $('#fileCount').text('0 个文件');
+            $btn.prop('disabled', true);
+        }
+    }
+
+    // 检查剩余次数
+    (function() {
+        const $el = $('#remainingTimes');
+        if ($el.length && parseInt($el.text()) <= 0) {
+            $('#convertBtn').prop('disabled', true);
+        }
+    })();
+
+    // ===== 开始转换 =====
+    $('#convertBtn').on('click', function() {
+        const mode = $('input[name="mode"]:checked').val();
+        if (!mode) { showToast('请先选择转换模式'); return; }
+
+        const $remainingEl = $('#remainingTimes');
+        if ($remainingEl.length > 0) {
+            const remainingTimes = parseInt($remainingEl.text()) || 0;
+            if (remainingTimes <= 0) {
+                showToast('剩余次数不足，请联系管理员充值');
+                return;
+            }
+        }
+
+        const inputType = $('input[name="mode"]:checked').data('input-type');
+        const formData = new FormData();
+        formData.append('mode', mode);
+
+        if (inputType === 'file') {
+            const files = document.getElementById('fileInput').files;
+            for (let i = 0; i < files.length; i++) {
+                formData.append('file', files[i]);
+            }
+        } else {
+            const files = document.getElementById('filesInput').files;
+            for (let i = 0; i < files.length; i++) {
+                formData.append('files', files[i]);
+            }
+        }
+
+        // 显示结果区
+        const $res = $('#resultArea');
+        const $fill = $('#progressFill');
+        const $msg = $('#resultMessage');
+        const $dl = $('#downloadBtn');
+        const $btn = $('#convertBtn');
+
+        $res.addClass('show');
+        $fill.css('width', '5%');
+        $msg.hide().removeClass('success error');
+        $dl.addClass('hidden');
+        $btn.prop('disabled', true);
+
+        $('html, body').animate({ scrollTop: $res.offset().top - 80 }, 400);
+
+        $.ajax({
+            url: '{{ url_for("converter.convert") }}',
+            type: 'POST',
+            data: formData,
+            processData: false,
+            contentType: false,
+            xhr: function() {
+                const xhr = new XMLHttpRequest();
+                xhr.upload.addEventListener('progress', function(e) {
+                    if (e.lengthComputable) {
+                        $fill.css('width', Math.round(e.loaded / e.total * 50) + '%');
+                    }
+                });
+                return xhr;
+            },
+            success: function(response) {
+                let pct = 50;
+                const iv = setInterval(function() {
+                    pct += Math.random() * 12;
+                    if (pct >= 95) { pct = 95; clearInterval(iv); }
+                    $fill.css('width', pct + '%');
+                }, 250);
+
+                setTimeout(function() {
+                    clearInterval(iv);
+                    $fill.css('width', '100%');
+
+                    if (response.success) {
+                        $msg.addClass('success').html('<i class="fas fa-check-circle me-1"></i>' + response.message).show();
+                        if (response.download_url) {
+                            $dl.attr('href', response.download_url).removeClass('hidden');
+                        }
+                        if (response.remaining_times !== undefined && response.remaining_times !== null) {
+                            const $r = $('#remainingTimes');
+                            $r.text(response.remaining_times);
+                            const badge = $r.closest('.stat-badge');
+                            if (response.remaining_times <= 5) {
+                                badge.addClass('warn');
+                            } else {
+                                badge.removeClass('warn');
+                            }
+                            if (response.remaining_times <= 0) {
+                                $btn.prop('disabled', true);
+                                showToast('剩余次数已用完');
+                            }
+                        }
+                    } else {
+                        $msg.addClass('error').html('<i class="fas fa-exclamation-circle me-1"></i>' + response.message).show();
+                    }
+                }, 600);
+            },
+            error: function() {
+                $fill.css('width', '100%').css('background', '#ef4444');
+                $msg.addClass('error').html('<i class="fas fa-times-circle me-1"></i>网络错误，请重试').show();
+            },
+            complete: function() {
+                const rt = parseInt($('#remainingTimes').text()) || 0;
+                if (rt > 0) $btn.prop('disabled', false);
+            }
+        });
+    });
+
+    // ===== Toast =====
+    function showToast(msg) {
+        const $t = $('<div class="custom-toast" style="background:#fef2f2;color:#991b1b;">' +
+            '<i class="fas fa-exclamation-triangle me-2"></i>' + msg + '</div>');
+        $('body').append($t);
+        setTimeout(function() { $t.fadeOut(300, function() { $t.remove(); }); }, 3000);
+    }
+
+    // ===== 拖拽上传 =====
+    const dropZone = document.getElementById('dropZone');
+    ['dragover', 'dragenter'].forEach(function(evt) {
+        dropZone.addEventListener(evt, function(e) { e.preventDefault(); dropZone.classList.add('drag-over'); });
+    });
+    ['dragleave', 'drop'].forEach(function(evt) {
+        dropZone.addEventListener(evt, function(e) { e.preventDefault(); dropZone.classList.remove('drag-over'); });
+    });
+    dropZone.addEventListener('drop', function(e) {
+        const files = e.dataTransfer.files;
+        const inputType = $('input[name="mode"]:checked').data('input-type');
+        if (!inputType || inputType === 'file') {
+            document.getElementById('fileInput').files = files;
+        } else {
+            document.getElementById('filesInput').files = files;
+        }
+        updateFileList();
+    });
+});
+</script>
+{% endblock %}

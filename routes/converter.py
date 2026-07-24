@@ -1,0 +1,465 @@
+import os
+import re
+import uuid
+import zipfile
+from datetime import datetime
+from flask import Blueprint, render_template, request, jsonify, session, redirect, \
+    url_for, flash, send_file
+from werkzeug.utils import secure_filename
+
+from config import Config
+from converter.converter_engine import Function
+from database.db_manager import DatabaseManager
+
+converter_bp = Blueprint('converter', __name__)
+
+# 模式配置
+MODE_LIST = [
+    'word转pdf', 'pdf转word', '图片转pdf', 'pdf转图片',
+    'csv转excel', 'excel转csv', 'PDF OCR识别', '图片OCR识别',
+    '图片转ppt', 'pdf合并', 'md转pdf', 'excel转pdf', 'ppt转pdf', 'html转pdf'
+]
+
+# 每种模式需要的输入类型
+MODE_INPUT_TYPE = {
+    'word转pdf': 'file',
+    'pdf转word': 'file',
+    '图片转pdf': 'directory',
+    'pdf转图片': 'file',
+    'csv转excel': 'file',
+    'excel转csv': 'file',
+    'PDF OCR识别': 'file',
+    '图片OCR识别': 'file',
+    '图片转ppt': 'directory',
+    'pdf合并': 'files',
+    'md转pdf': 'file',
+    'excel转pdf': 'file',
+    'ppt转pdf': 'file',
+    'html转pdf': 'file',
+}
+
+# 输入文件扩展名映射
+MODE_EXTENSIONS = {
+    'word转pdf': '.docx',
+    'pdf转word': '.pdf',
+    '图片转pdf': None,
+    'pdf转图片': '.pdf',
+    'csv转excel': '.csv',
+    'excel转csv': '.xlsx,.xls',
+    'PDF OCR识别': '.pdf',
+    '图片OCR识别': '.jpg,.jpeg,.png',
+    '图片转ppt': None,
+    'pdf合并': '.pdf',
+    'md转pdf': '.md',
+    'excel转pdf': '.xlsx,.xls',
+    'ppt转pdf': '.pptx,.ppt',
+    'html转pdf': '.html,.htm',
+}
+
+# 输出文件扩展名映射
+MODE_OUTPUT_EXT = {
+    'word转pdf': '.pdf',
+    'pdf转word': '.docx',
+    '图片转pdf': '.pdf',
+    'pdf转图片': None,
+    'csv转excel': '.xlsx',
+    'excel转csv': '.csv',
+    'PDF OCR识别': '.txt',
+    '图片OCR识别': '.txt',
+    '图片转ppt': '.pptx',
+    'pdf合并': '.pdf',
+    'md转pdf': '.pdf',
+    'excel转pdf': '.pdf',
+    'ppt转pdf': '.pdf',
+    'html转pdf': '.pdf',
+}
+
+
+# 模式名到函数名的映射
+MODE_TO_FUNCTION = {
+    'word转pdf': 'word_to_pdf',
+    'pdf转word': 'pdf_to_word',
+    '图片转pdf': 'image_to_pdf',
+    'pdf转图片': 'pdf_to_image',
+    'csv转excel': 'csv_to_excel',
+    'excel转csv': 'excel_to_csv',
+    'PDF OCR识别': 'pdf_ocr',
+    '图片OCR识别': 'image_ocr',
+    '图片转ppt': 'img_to_ppt',
+    'pdf合并': 'merge_pdf',
+    'md转pdf': 'md_to_pdf',
+    'excel转pdf': 'excel_to_pdf',
+    'ppt转pdf': 'ppt_to_pdf',
+    'html转pdf': 'html_to_pdf',
+}
+
+
+def allowed_file(filename, mode):
+    """检查文件扩展名是否允许"""
+    if '.' not in filename:
+        return False
+    ext = filename.rsplit('.', 1)[1].lower()
+    allowed_exts = MODE_EXTENSIONS.get(mode)
+    if allowed_exts is None:
+        # directory 模式允许图片格式
+        return ext in ['jpg', 'jpeg', 'png', 'bmp', 'gif', 'tiff']
+    
+    # 处理多个扩展名的情况，去掉点号后比较
+    allowed_list = [e.strip().lstrip('.') for e in allowed_exts.split(',')]
+    return ext in allowed_list
+
+
+def login_required():
+    """检查用户是否登录"""
+    if 'username' not in session:
+        flash('请先登录', 'error')
+        return redirect(url_for('auth.login'))
+
+
+@converter_bp.route('/')
+def index():
+    if 'username' not in session:
+        return redirect(url_for('auth.login'))
+
+    user = DatabaseManager.get_user_by_username(session['username'])
+    if not user:
+        session.clear()
+        return redirect(url_for('auth.login'))
+
+    # 检查是否被封禁，封禁则踢出登录
+    if user.get('is_block'):
+        session.clear()
+        flash('您的账户已被封禁', 'error')
+        return redirect(url_for('auth.login'))
+
+    # 避免重复数据库调用：先获取结果再判断
+    ann_success, announcements = DatabaseManager.get_active_announcements(5)
+    if not ann_success:
+        announcements = []
+
+    return render_template(
+        'index.html',
+        modes=MODE_LIST,
+        user=user,
+        login_type=session.get('login_type', 'times'),
+        announcements=announcements
+    )
+
+
+@converter_bp.route('/convert', methods=['POST'])
+def convert():
+    if 'username' not in session:
+        return jsonify({'success': False, 'message': '请先登录'})
+
+    mode = request.form.get('mode', '')
+    if mode not in MODE_LIST:
+        return jsonify({'success': False, 'message': '无效的转换模式'})
+
+    # 验证用户权限
+    user = DatabaseManager.get_user_by_username(session['username'])
+    if not user:
+        return jsonify({'success': False, 'message': '用户不存在'})
+    if user['is_block']:
+        return jsonify({'success': False, 'message': '账户已被封禁'})
+
+    login_type = session.get('login_type', 'times')
+    if login_type == 'time':
+        from datetime import datetime
+        if datetime.now() > user['expiration_date']:
+            return jsonify({'success': False, 'message': '账户已过期'})
+    elif login_type == 'times':
+        if user['remaining_times'] <= 0:
+            return jsonify({'success': False, 'message': '剩余次数不足'})
+
+    # 生成唯一的任务ID
+    task_id = uuid.uuid4().hex
+    input_type = MODE_INPUT_TYPE.get(mode, 'file')
+
+    try:
+        # 处理文件上传
+        input_paths = []
+
+        if input_type == 'file':
+            # 支持批量上传多个文件
+            files = request.files.getlist('file')
+            if not files or len(files) == 0:
+                return jsonify({'success': False, 'message': '请选择文件'})
+            
+            for i, file in enumerate(files):
+                if not file or file.filename == '':
+                    continue
+                    
+                # 验证文件类型
+                if not allowed_file(file.filename, mode):
+                    return jsonify({'success': False, 'message': f'不支持的文件格式，请上传 {MODE_EXTENSIONS.get(mode)} 格式的文件'})
+                
+                # 检查文件大小（最大 50MB）
+                file.seek(0, 2)
+                file_size = file.tell()
+                file.seek(0)
+                if file_size > Config.UPLOAD_MAX_SIZE * 1024 * 1024:
+                    return jsonify({'success': False, 'message': f'文件 "{file.filename}" 大小超过限制（最大 {Config.UPLOAD_MAX_SIZE}MB）'})
+                
+                # 处理文件名
+                original_filename = file.filename
+                ext = os.path.splitext(original_filename)[1] if '.' in original_filename else ''
+                filename = f'{task_id}_{i}{ext}'
+                save_path = os.path.join(Config.UPLOAD_FOLDER, filename)
+                file.save(save_path)
+                input_paths.append(save_path)
+            
+            if len(input_paths) == 0:
+                return jsonify({'success': False, 'message': '没有有效的文件'})
+
+        elif input_type == 'files':
+            files = request.files.getlist('files')
+            if not files or len(files) == 0:
+                return jsonify({'success': False, 'message': '请选择文件'})
+            for i, file in enumerate(files):
+                if file and file.filename != '':
+                    # 验证文件类型
+                    if not allowed_file(file.filename, mode):
+                        return jsonify({'success': False, 'message': f'文件 "{file.filename}" 格式不支持'})
+                    
+                    original_filename = file.filename
+                    ext = os.path.splitext(original_filename)[1] if '.' in original_filename else ''
+                    filename = f'{task_id}_{i}{ext}'
+                    save_path = os.path.join(Config.UPLOAD_FOLDER, filename)
+                    file.save(save_path)
+                    input_paths.append(save_path)
+
+        elif input_type == 'directory':
+            files = request.files.getlist('files')
+            if not files or len(files) == 0:
+                return jsonify({'success': False, 'message': '请选择文件'})
+            dir_path = os.path.join(Config.UPLOAD_FOLDER, task_id)
+            os.makedirs(dir_path, exist_ok=True)
+            file_count = 0
+            for i, file in enumerate(files):
+                if file and file.filename != '':
+                    # 验证文件类型（只允许图片）
+                    if not allowed_file(file.filename, mode):
+                        continue
+                    original_filename = file.filename
+                    ext = os.path.splitext(original_filename)[1] if '.' in original_filename else ''
+                    filename = f'{i}{ext}'
+                    save_full_path = os.path.join(dir_path, filename)
+                    file.save(save_full_path)
+                    file_count += 1
+            if file_count == 0:
+                return jsonify({'success': False, 'message': '没有有效的图片文件'})
+            input_paths = [dir_path]
+
+        # 确定输出路径
+        result_message = '转换成功'  # 默认消息，批量模式会覆盖
+        if mode == 'pdf合并':
+            output_path = os.path.join(
+                Config.OUTPUT_FOLDER, f'{task_id}_merged.pdf'
+            )
+            result = Function.merge_pdf(input_paths, output_path)
+        elif mode == 'pdf转图片':
+            # PDF 转图片会生成多张图片，使用目录
+            output_dir = os.path.join(Config.OUTPUT_FOLDER, f'{task_id}_images')
+            os.makedirs(output_dir, exist_ok=True)
+            result = Function.pdf_to_image(input_paths[0], output_dir)
+            if result:
+                # 检查是否有生成的图片
+                image_files = [f for f in os.listdir(output_dir) if f.endswith('.jpg')]
+                if not image_files:
+                    return jsonify({'success': False, 'message': 'PDF转换失败，未生成图片'})
+                
+                # 将图片打包成 zip
+                zip_path = os.path.join(Config.OUTPUT_FOLDER, f'{task_id}_images.zip')
+                try:
+                    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                        for img_file in image_files:
+                            zipf.write(os.path.join(output_dir, img_file), img_file)
+                    # 验证 ZIP 文件是否创建成功
+                    if not os.path.exists(zip_path) or os.path.getsize(zip_path) == 0:
+                        return jsonify({'success': False, 'message': 'ZIP打包失败'})
+                    output_path = zip_path
+                except Exception as zip_err:
+                    return jsonify({'success': False, 'message': f'ZIP打包失败: {str(zip_err)}'})
+        elif input_type == 'directory':
+            output_path = os.path.join(
+                Config.OUTPUT_FOLDER,
+                f'{task_id}{MODE_OUTPUT_EXT.get(mode, ".pdf")}'
+            )
+            result = getattr(Function, MODE_TO_FUNCTION[mode])(
+                input_paths[0], output_path
+            )
+        else:
+            # 单文件模式（支持批量：逐个转换后打包下载）
+            func_name = MODE_TO_FUNCTION.get(mode)
+            if not func_name:
+                return jsonify({'success': False, 'message': '无效的转换模式'})
+
+            output_paths = []  # 收集 (输出路径, 原始文件名) 元组
+            failed_files = []
+
+            for i, input_path in enumerate(input_paths):
+                # 生成独立输出路径
+                base_name = os.path.basename(input_path)
+                output_path = os.path.join(Config.OUTPUT_FOLDER, f'{task_id}_{i}_{base_name}')
+                ext = MODE_OUTPUT_EXT.get(mode, '')
+                if ext:
+                    base, _ = os.path.splitext(output_path)
+                    output_path = base + ext
+
+                try:
+                    single_result = getattr(Function, func_name)(input_path, output_path)
+                    if single_result and os.path.exists(output_path):
+                        output_paths.append(output_path)
+                    else:
+                        failed_files.append(os.path.basename(input_path))
+                except Exception as conv_err:
+                    print(f"转换文件 {base_name} 失败: {conv_err}")
+                    failed_files.append(os.path.basename(input_path))
+
+            if not output_paths:
+                result = False
+            else:
+                result = True
+                # 单文件直接下载，多文件打包 zip
+                if len(output_paths) == 1:
+                    output_path = output_paths[0]
+                else:
+                    zip_name = f'{task_id}_batch.zip'
+                    zip_path = os.path.join(Config.OUTPUT_FOLDER, zip_name)
+                    try:
+                        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                            for out_path in output_paths:
+                                zipf.write(out_path, os.path.basename(out_path))
+                        output_path = zip_path
+                    except Exception as zip_err:
+                        return jsonify({'success': False, 'message': f'打包失败: {str(zip_err)}'})
+
+                # 如果有部分失败，在 message 中提示
+                if failed_files:
+                    result_message = f'成功 {len(output_paths)} 个，失败: {", ".join(failed_files)}'
+                else:
+                    result_message = '转换成功'
+
+        if result:
+            # 记录成功日志
+            filename_list = ', '.join([os.path.basename(p) for p in input_paths])
+            DatabaseManager.log_conversion(
+                session['username'], mode, filename_list, True, '转换成功'
+            )
+            
+            # 扣除使用次数（并检查返回值）
+            remaining_times = None
+            if login_type == 'times':
+                success, msg = DatabaseManager.decrease_user_times(
+                    session['username'], 1
+                )
+                if not success:
+                    print(f"扣减次数失败: {msg}")
+                else:
+                    # 从返回消息中提取最新的剩余次数
+                    match = re.search(r'当前剩余 (\d+) 次', msg)
+                    if match:
+                        remaining_times = int(match.group(1))
+            
+            # 重新获取用户信息以确保数据一致性
+            updated_user = DatabaseManager.get_user_by_username(session['username'])
+            if updated_user:
+                current_remaining = updated_user.get('remaining_times', 0)
+                session['remaining_times'] = current_remaining
+                # 如果没有从扣减消息中获取到，使用数据库的值
+                if remaining_times is None:
+                    remaining_times = current_remaining
+            else:
+                session['remaining_times'] = remaining_times or session.get('remaining_times', 0)
+
+            return jsonify({
+                'success': True,
+                'message': result_message,
+                'download_url': url_for(
+                    'converter.download', filename=os.path.basename(output_path)
+                ),
+                'remaining_times': remaining_times
+            })
+        else:
+            # 记录失败日志
+            filename_list = ', '.join([os.path.basename(p) for p in input_paths])
+            DatabaseManager.log_conversion(
+                session['username'], mode, filename_list, False, '转换失败'
+            )
+            return jsonify({'success': False, 'message': '转换失败，请检查文件格式或联系管理员'})
+
+    except Exception as e:
+        # 记录异常日志
+        mode = request.form.get('mode', '未知')
+        DatabaseManager.log_conversion(
+            session.get('username', '未知'), mode, '', False, f'系统异常: {str(e)}'
+        )
+        return jsonify({'success': False, 'message': f'转换出错: {str(e)}'})
+
+
+@converter_bp.route('/download/<filename>')
+def download(filename):
+    """下载转换后的文件"""
+    if 'username' not in session:
+        return redirect(url_for('auth.login'))
+
+    # 安全检查：防止路径穿越
+    safe_path = os.path.normpath(
+        os.path.join(Config.OUTPUT_FOLDER, filename)
+    )
+    if not safe_path.startswith(os.path.normpath(Config.OUTPUT_FOLDER)):
+        return jsonify({'success': False, 'message': '无效的文件路径'})
+
+    if not os.path.exists(safe_path):
+        return jsonify({'success': False, 'message': '文件不存在或已过期'})
+
+    return send_file(safe_path, as_attachment=True)
+
+
+@converter_bp.route('/contact', methods=['GET', 'POST'])
+def contact():
+    """联系作者页面"""
+    if 'username' not in session:
+        return redirect(url_for('auth.login'))
+    
+    username = session['username']
+    
+    if request.method == 'POST':
+        subject = request.form.get('subject', '').strip()
+        message = request.form.get('message', '').strip()
+        
+        if not subject or not message:
+            return jsonify({'success': False, 'message': '请填写主题和内容'})
+        
+        success, msg = DatabaseManager.submit_contact_message(
+            subject=subject,
+            message=message,
+            username=username,
+            name=session.get('username', ''),
+            email=''
+        )
+        return jsonify({'success': success, 'message': msg})
+    
+    # 标记本次访问时间（用于未读回复提醒）
+    session['contact_visit_time'] = datetime.now().isoformat()
+    
+    # 获取当前用户的历史消息
+    success, my_messages, total = DatabaseManager.get_messages_by_username(username)
+    if not success:
+        my_messages = []
+        total = 0
+    
+    return render_template('contact.html', my_messages=my_messages, total=total)
+
+
+@converter_bp.route('/api/user_unread_replies')
+def user_unread_replies():
+    """获取用户未读回复数"""
+    if 'username' not in session:
+        return jsonify({'count': 0})
+    
+    username = session['username']
+    visit_time = session.get('contact_visit_time')
+    
+    count = DatabaseManager.get_unread_reply_count(username, visit_time)
+    return jsonify({'count': count})

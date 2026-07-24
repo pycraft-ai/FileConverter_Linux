@@ -1,0 +1,178 @@
+from flask import Flask, request, abort
+from config import Config
+from database.db_manager import DatabaseManager
+import os
+import time
+import atexit
+from concurrent.futures import ThreadPoolExecutor
+# 导入蓝图
+from routes.auth import auth_bp
+from routes.converter import converter_bp
+from routes.admin import admin_bp
+
+app = Flask(__name__)
+app.config.from_object(Config)
+app.config['SECRET_KEY'] = Config.SECRET_KEY
+
+# 注册蓝图
+app.register_blueprint(auth_bp)
+app.register_blueprint(converter_bp)
+app.register_blueprint(admin_bp)
+
+
+# 全局模板变量：所有模板可直接使用 CDN_BASE_URL
+@app.context_processor
+def inject_global_vars():
+    return {
+        'CDN_BASE_URL': Config.CDN_BASE_URL,
+    }
+
+# 全局线程池，复用线程执行异步日志写入
+# 固定2个线程足够处理日志IO，避免创建/销毁线程开销
+log_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix='log_writer')
+
+
+@atexit.register
+def cleanup():
+    """应用退出时清理资源"""
+    try:
+        log_executor.shutdown(wait=True, timeout=5)
+    except Exception:
+        pass
+    try:
+        DatabaseManager.shutdown_pool()
+    except Exception:
+        pass
+
+
+# 静态资源路径列表，跳过日志记录以减少数据库压力
+_SKIP_LOG_PATHS = frozenset([
+    '/static/', '/favicon.ico', '/admin/unread_count',
+    '/api/user_unread_replies'
+])
+
+
+def _should_skip_log(path):
+    """判断是否跳过该路径的访问日志记录"""
+    if path.startswith('/static/'):
+        return True
+    return path in _SKIP_LOG_PATHS
+
+
+@atexit.register
+def cleanup_old_files():
+    """清理超时的上传/输出文件（仅保留最近7天）"""
+    import glob
+    ttl = Config.FILE_CLEANUP_TTL
+    now = time.time()
+    for folder in [Config.UPLOAD_FOLDER, Config.OUTPUT_FOLDER]:
+        if os.path.isdir(folder):
+            for f in glob.glob(os.path.join(folder, '*')):
+                try:
+                    if os.path.isfile(f) and now - os.path.getmtime(f) > ttl:
+                        os.remove(f)
+                except Exception:
+                    pass
+
+
+@app.before_request
+def before_request():
+    """请求前处理：检查IP黑名单并记录开始时间"""
+    # 获取真实IP地址（兼容 Cloudflare 内网穿透）
+    if request.headers.get("CF-Connecting-IP"):
+        ip_address = request.headers.get("CF-Connecting-IP")
+    elif request.headers.getlist("X-Forwarded-For"):
+        ip_address = request.headers.getlist("X-Forwarded-For")[0].split(',')[0].strip()
+    else:
+        ip_address = request.remote_addr
+
+    # 检查IP是否在黑名单中
+    is_blocked, block_info = DatabaseManager.is_ip_blocked(ip_address)
+    if is_blocked:
+        reason = block_info.get('reason', '未知原因') if block_info else '未知原因'
+        return f'您的IP已被封禁，原因：{reason}', 403
+
+    # 记录请求开始时间
+    request.start_time = time.time()
+
+
+@app.after_request
+def after_request(response):
+    """请求后处理：异步记录访问日志（跳过静态资源）"""
+    try:
+        # 跳过静态资源和轮询请求的日志记录，大幅减少数据库压力
+        if _should_skip_log(request.path):
+            return response
+
+        # 获取真实IP地址
+        if request.headers.get("CF-Connecting-IP"):
+            ip_address = request.headers.get("CF-Connecting-IP")
+        elif request.headers.getlist("X-Forwarded-For"):
+            ip_address = request.headers.getlist("X-Forwarded-For")[0].split(',')[0].strip()
+        else:
+            ip_address = request.remote_addr
+
+        # 计算响应时间
+        response_time = 0
+        if hasattr(request, 'start_time'):
+            response_time = round(time.time() - request.start_time, 4)
+
+        # 在启动线程前先获取所有需要的数据（避免请求上下文问题）
+        log_data = {
+            'ip_address': ip_address,
+            'request_url': request.url,
+            'request_method': request.method,
+            'user_agent': request.user_agent.string[:500] if request.user_agent else '',
+            'referer': (request.referrer or '')[:500],
+            'status_code': response.status_code,
+            'response_time': response_time
+        }
+
+        # 使用线程池异步记录日志，避免阻塞请求响应
+        log_executor.submit(_log_access, log_data)
+
+    except Exception as e:
+        print(f"记录访问日志错误: {e}")
+
+    return response
+
+
+def _log_access(data):
+    """线程池任务：记录IP访问日志"""
+    try:
+        DatabaseManager.log_ip_access(
+            ip_address=data['ip_address'],
+            request_url=data['request_url'],
+            request_method=data['request_method'],
+            user_agent=data['user_agent'],
+            referer=data['referer'],
+            status_code=data['status_code'],
+            response_time=data['response_time']
+        )
+    except Exception as e:
+        print(f"异步记录IP访问日志失败: {e}")
+
+
+@app.errorhandler(404)
+def not_found(e):
+    return '页面不存在', 404
+
+
+@app.errorhandler(500)
+def server_error(e):
+    return '服务器内部错误', 500
+
+
+if __name__ == '__main__':
+    # 只在 reloader 子进程中执行初始化，避免重复
+    # if os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
+    #     print("正在初始化数据库...")
+    #     DatabaseManager.initialize_database()
+    #     print("数据库初始化完成")
+    print("正在初始化数据库...")
+    DatabaseManager.initialize_database()
+    print("数据库初始化完成")
+    # 启动 Flask 服务器
+    debug_mode = os.environ.get('FLASK_DEBUG', '0') == '1'
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=debug_mode)

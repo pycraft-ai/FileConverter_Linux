@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+
+{% block title %}联系作者 - 文件转化工具{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-5 mb-4">
+        <div class="glass-card p-4">
+            <h3 class="mb-4 text-center">
+                <i class="fas fa-envelope me-2"></i>联系作者
+            </h3>
+            <p class="text-muted text-center mb-4">
+                如果您有任何建议、问题或反馈，请填写下方表单，我会尽快回复您。
+            </p>
+
+            <form id="contactForm">
+                <div class="mb-3">
+                    <label class="form-label"><i class="fas fa-tag me-1"></i>主题 <span class="text-danger">*</span></label>
+                    <select class="form-select bg-dark text-white border-secondary" id="contactSubject" name="subject" required>
+                        <option value="">请选择主题</option>
+                        <option value="功能建议">功能建议</option>
+                        <option value="问题反馈">问题反馈</option>
+                        <option value="使用咨询">使用咨询</option>
+                        <option value="合作洽谈">合作洽谈</option>
+                        <option value="其他">其他</option>
+                    </select>
+                </div>
+
+                <div class="mb-4">
+                    <label class="form-label"><i class="fas fa-comment-dots me-1"></i>详细内容 <span class="text-danger">*</span></label>
+                    <textarea class="form-control bg-dark text-white border-secondary" 
+                              id="contactMessage" name="message" rows="6" 
+                              placeholder="请详细描述您的建议、问题或反馈..." required></textarea>
+                </div>
+
+                <div class="d-grid gap-2">
+                    <button type="submit" class="btn btn-gradient btn-lg" id="submitBtn">
+                        <i class="fas fa-paper-plane me-2"></i>发送消息
+                    </button>
+                </div>
+            </form>
+
+            <div id="resultMessage" class="mt-3" style="display:none;"></div>
+        </div>
+    </div>
+
+    <div class="col-lg-7 mb-4">
+        <div class="glass-card p-4">
+            <h4 class="mb-3"><i class="fas fa-history me-2"></i>我的消息 <small class="text-muted">共 {{ total }} 条</small></h4>
+
+            {% if my_messages %}
+            <div class="list-group list-group-flush">
+                {% for msg in my_messages %}
+                <div class="list-group-item bg-transparent mb-2" 
+                     style="border-radius:10px;border:1px solid rgba(0,0,0,0.08);color:#333;">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <span class="badge bg-info me-2">{{ msg.subject }}</span>
+                            <small class="text-muted">{{ msg.created_at }}</small>
+                        </div>
+                        {% if msg.reply %}
+                        <span class="badge bg-success"><i class="fas fa-check me-1"></i>已回复</span>
+                        {% else %}
+                        <span class="badge bg-secondary">等待回复</span>
+                        {% endif %}
+                    </div>
+                    <div class="mt-2" style="white-space:pre-wrap;color:#555;">{{ msg.message }}</div>
+                    {% if msg.reply %}
+                    <div class="mt-2 p-3" style="background:rgba(78,205,196,0.1);border-left:3px solid #4ecdc4;border-radius:6px;">
+                        <small class="text-info"><i class="fas fa-reply me-1"></i>作者回复 ({{ msg.replied_at }})</small>
+                        <div class="mt-1" style="white-space:pre-wrap;color:#333;">{{ msg.reply }}</div>
+                    </div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="text-center text-muted py-5">
+                <i class="fas fa-comments fa-4x mb-3" style="opacity:0.3;"></i>
+                <p>暂无消息，发送第一条消息吧</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('contactForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    var btn = document.getElementById('submitBtn');
+    var resultDiv = document.getElementById('resultMessage');
+    
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>发送中...';
+    resultDiv.style.display = 'none';
+    
+    var fd = new FormData(this);
+    
+    fetch('{{ url_for("converter.contact") }}', {
+        method: 'POST',
+        body: fd
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        resultDiv.style.display = 'block';
+        if (data.success) {
+            resultDiv.className = 'mt-3 alert alert-success';
+            resultDiv.innerHTML = '<i class="fas fa-check-circle me-2"></i>' + data.message;
+            document.getElementById('contactForm').reset();
+            // 刷新页面以显示新消息
+            setTimeout(function() { location.reload(); }, 1000);
+        } else {
+            resultDiv.className = 'mt-3 alert alert-danger';
+            resultDiv.innerHTML = '<i class="fas fa-exclamation-circle me-2"></i>' + data.message;
+        }
+    })
+    .catch(function(err) {
+        resultDiv.style.display = 'block';
+        resultDiv.className = 'mt-3 alert alert-danger';
+        resultDiv.innerHTML = '<i class="fas fa-exclamation-circle me-2"></i>发送失败，请稍后重试';
+    })
+    .finally(function() {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-paper-plane me-2"></i>发送消息';
+    });
+});
+</script>
+{% endblock %}

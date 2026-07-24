@@ -1,0 +1,1466 @@
+import hashlib
+import os
+import re
+import threading
+import queue
+import uuid
+import subprocess
+import ipaddress
+from datetime import datetime, timedelta
+from functools import lru_cache
+
+import mysql.connector
+from mysql.connector import Error, pooling
+
+# 导入配置
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from config import Config
+
+
+class DatabaseManager:
+    """数据库管理器（从原 File_converter.py 提取）"""
+
+    # 使用 mysql-connector 内置连接池（线程安全，支持自动回收）
+    _cnx_pool = None
+    _pool_lock = threading.Lock()
+
+    @classmethod
+    def _get_pool(cls):
+        """懒加载获取连接池"""
+        if cls._cnx_pool is None:
+            with cls._pool_lock:
+                if cls._cnx_pool is None:
+                    try:
+                        cls._cnx_pool = pooling.MySQLConnectionPool(
+                            pool_name='fileconverter_pool',
+                            pool_size=Config.DB_POOL_SIZE,
+                            **Config.DB_CONFIG
+                        )
+                    except Error as e:
+                        print(f"创建连接池失败: {e}")
+                        return None
+        return cls._cnx_pool
+
+    @classmethod
+    def check_mysql_service(cls):
+        """检查 MySQL 服务是否运行（支持 Linux/WSL 和 Windows）"""
+        try:
+            if os.name == 'nt':
+                # Windows 方式
+                result = subprocess.run(
+                    ['sc', 'query', 'mysql'], capture_output=True, text=True
+                )
+                if result.returncode == 0 and 'RUNNING' in result.stdout:
+                    return True
+                return False
+            else:
+                # Linux/WSL 方式
+                try:
+                    result = subprocess.run(
+                        ['systemctl', 'is-active', '--quiet', 'mysql'],
+                        capture_output=True, timeout=5
+                    )
+                    if result.returncode == 0:
+                        return True
+                except FileNotFoundError:
+                    pass
+                # 备选: 使用 mysqladmin ping 检测（通过环境变量传密码，避免进程列表泄露）
+                try:
+                    env = os.environ.copy()
+                    env['MYSQL_PWD'] = Config.DB_CONFIG.get("password", "")
+                    result = subprocess.run(
+                        ['mysqladmin', 'ping', '-u', Config.DB_CONFIG.get('user', 'root'),
+                         '--silent'],
+                        capture_output=True, timeout=5, text=True, env=env
+                    )
+                    if result.returncode == 0 or 'mysqld is alive' in result.stdout:
+                        return True
+                except FileNotFoundError:
+                    pass
+                return False
+        except Exception as e:
+            print(f"检查MySQL服务状态错误: {e}")
+            return False
+
+    @classmethod
+    def get_connection(cls):
+        """从连接池获取可用连接（使用 mysql-connector 内置连接池，避免锁竞争）"""
+        try:
+            pool = cls._get_pool()
+            if pool:
+                return pool.get_connection()
+            # 降级：直接创建连接
+            return cls.create_connection()
+        except Error as e:
+            print(f"获取数据库连接错误: {e}")
+            # 连接池可能失效，尝试直接创建
+            try:
+                return cls.create_connection()
+            except Exception:
+                return None
+
+    @classmethod
+    def return_connection(cls, conn):
+        """将连接返回到连接池"""
+        try:
+            if conn:
+                try:
+                    # 检查连接是否仍然有效
+                    if conn.is_connected():
+                        conn.close()  # mysql-connector 内置池的连接 close() 即归还
+                    else:
+                        try:
+                            conn.close()
+                        except Exception:
+                            pass
+                except Exception:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+        except Exception as e:
+            print(f"返回数据库连接错误: {e}")
+
+    @staticmethod
+    def create_connection():
+        """创建数据库连接"""
+        try:
+            conn = mysql.connector.connect(**Config.DB_CONFIG)
+            return conn
+        except Error as e:
+            print(f"数据库连接错误: {e}")
+            return None
+
+    @classmethod
+    def shutdown_pool(cls):
+        """关闭连接池（应用退出时调用）"""
+        if cls._cnx_pool:
+            try:
+                # mysql-connector 内置池没有显式关闭方法
+                # 但可以通过设置 None 让 GC 回收
+                cls._cnx_pool = None
+            except Exception:
+                pass
+
+    @staticmethod
+    def initialize_database():
+        """初始化数据库和表"""
+        conn = None
+        try:
+            conn = DatabaseManager.create_connection()
+            if conn:
+                cursor = conn.cursor()
+                DB = Config.DB_CONFIG.get('database')
+                # 数据库名只允许字母、数字、下划线，防止 SQL 注入
+                if not re.match(r'^[a-zA-Z0-9_]+$', str(DB)):
+                    print(f"非法的数据库名: {DB}")
+                    return
+                cursor.execute("SHOW DATABASES LIKE %s", (DB,))
+                database_exists = cursor.fetchone()
+
+                if not database_exists:
+                    cursor.execute(f"CREATE DATABASE `{DB}`")
+
+                cursor.execute(f"USE `{DB}`")
+
+                # --- 用户表 ---
+                cursor.execute("SHOW TABLES LIKE 'users'")
+                table_exists = cursor.fetchone()
+                if not table_exists:
+                    cursor.execute("""
+                        CREATE TABLE users (
+                            id              INT AUTO_INCREMENT PRIMARY KEY,
+                            username        VARCHAR(50) UNIQUE NOT NULL,
+                            email           VARCHAR(255) UNIQUE NOT NULL,
+                            password        VARCHAR(255) NOT NULL,
+                            salt            VARCHAR(255) NOT NULL,
+                            is_admin        BOOLEAN DEFAULT FALSE,
+                            is_block        BOOLEAN DEFAULT FALSE,
+                            expiration_date DATETIME,
+                            remaining_times INT DEFAULT 20,
+                            created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+                            updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                            INDEX idx_username (username),
+                            INDEX idx_email (email)
+                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                    """)
+
+                # --- 日志表 ---
+                cursor.execute("SHOW TABLES LIKE 'conversion_logs'")
+                log_table_exists = cursor.fetchone()
+                if not log_table_exists:
+                    cursor.execute("""
+                        CREATE TABLE conversion_logs (
+                            id              INT AUTO_INCREMENT PRIMARY KEY,
+                            username        VARCHAR(50) NOT NULL,
+                            mode            VARCHAR(100) NOT NULL,
+                            filename        TEXT,
+                            success         BOOLEAN NOT NULL,
+                            message         TEXT,
+                            operation_time  DATETIME DEFAULT CURRENT_TIMESTAMP,
+                            INDEX idx_username (username),
+                            INDEX idx_operation_time (operation_time),
+                            INDEX idx_user_time (username, operation_time)
+                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                    """)
+                else:
+                    for stmt in [
+                        "ALTER TABLE conversion_logs ADD INDEX idx_user_time (username, operation_time)"
+                    ]:
+                        try: cursor.execute(stmt)
+                        except Error: pass
+                        try: cursor.fetchall()
+                        except: pass
+
+                # --- 公告表 ---
+                cursor.execute("SHOW TABLES LIKE 'announcements'")
+                announce_table_exists = cursor.fetchone()
+                if not announce_table_exists:
+                    cursor.execute("""
+                        CREATE TABLE announcements (
+                            id              INT AUTO_INCREMENT PRIMARY KEY,
+                            title           VARCHAR(200) NOT NULL,
+                            content         TEXT NOT NULL,
+                            type            VARCHAR(20) DEFAULT 'info',
+                            is_active       BOOLEAN DEFAULT TRUE,
+                            priority        INT DEFAULT 0,
+                            created_by      VARCHAR(50),
+                            created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+                            updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                            INDEX idx_active (is_active),
+                            INDEX idx_active_priority (is_active, priority)
+                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                    """)
+
+                # --- IP访问记录表 ---
+                cursor.execute("SHOW TABLES LIKE 'ip_access_logs'")
+                ip_log_table_exists = cursor.fetchone()
+                if not ip_log_table_exists:
+                    cursor.execute("""
+                        CREATE TABLE ip_access_logs (
+                            id              INT AUTO_INCREMENT PRIMARY KEY,
+                            ip_address      VARCHAR(45) NOT NULL,
+                            request_url     VARCHAR(500),
+                            request_method  VARCHAR(10),
+                            user_agent      TEXT,
+                            referer         VARCHAR(500),
+                            access_time     DATETIME DEFAULT CURRENT_TIMESTAMP,
+                            status_code     INT,
+                            response_time   FLOAT,
+                            country         VARCHAR(100),
+                            city            VARCHAR(100),
+                            latitude        DECIMAL(10, 6),
+                            longitude       DECIMAL(10, 6),
+                            INDEX idx_ip (ip_address),
+                            INDEX idx_access_time (access_time),
+                            INDEX idx_ip_time (ip_address, access_time),
+                            INDEX idx_access_time_loc (access_time, latitude, longitude)
+                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                    """)
+                else:
+                    # 补充字段
+                    for col, col_type in [
+                        ('country', 'VARCHAR(100)'),
+                        ('city', 'VARCHAR(100)'),
+                        ('latitude', 'DECIMAL(10, 6)'),
+                        ('longitude', 'DECIMAL(10, 6)')
+                    ]:
+                        cursor.execute(f"SHOW COLUMNS FROM ip_access_logs LIKE '{col}'")
+                        if not cursor.fetchone():
+                            cursor.execute(f"ALTER TABLE ip_access_logs ADD COLUMN {col} {col_type}")
+                            try: cursor.fetchall()
+                            except: pass
+                    # 补充复合索引
+                    for stmt in [
+                        "ALTER TABLE ip_access_logs ADD INDEX idx_ip_time (ip_address, access_time)",
+                        "ALTER TABLE ip_access_logs ADD INDEX idx_access_time_loc (access_time, latitude, longitude)"
+                    ]:
+                        try: cursor.execute(stmt)
+                        except Error: pass
+                        try: cursor.fetchall()
+                        except: pass
+
+                # --- IP黑名单表 ---
+                cursor.execute("SHOW TABLES LIKE 'ip_blacklist'")
+                ip_blacklist_exists = cursor.fetchone()
+                if not ip_blacklist_exists:
+                    cursor.execute("""
+                        CREATE TABLE ip_blacklist (
+                            id              INT AUTO_INCREMENT PRIMARY KEY,
+                            ip_address      VARCHAR(45) UNIQUE NOT NULL,
+                            reason          TEXT,
+                            blocked_by      VARCHAR(50),
+                            blocked_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+                            expires_at      DATETIME,
+                            is_active       BOOLEAN DEFAULT TRUE,
+                            INDEX idx_ip (ip_address),
+                            INDEX idx_active (is_active),
+                            INDEX idx_active_expires (is_active, expires_at)
+                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                    """)
+                else:
+                    for stmt in [
+                        "ALTER TABLE ip_blacklist ADD INDEX idx_active_expires (is_active, expires_at)"
+                    ]:
+                        try: cursor.execute(stmt)
+                        except Error: pass
+                        try: cursor.fetchall()
+                        except: pass
+
+                # --- 联系消息表 ---
+                cursor.execute("SHOW TABLES LIKE 'contact_messages'")
+                contact_table_exists = cursor.fetchone()
+                if not contact_table_exists:
+                    cursor.execute("""
+                        CREATE TABLE contact_messages (
+                            id              INT AUTO_INCREMENT PRIMARY KEY,
+                            username        VARCHAR(50),
+                            name            VARCHAR(100) NOT NULL DEFAULT '',
+                            email           VARCHAR(255) NOT NULL DEFAULT '',
+                            subject         VARCHAR(200) NOT NULL,
+                            message         TEXT NOT NULL,
+                            created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+                            is_read         BOOLEAN DEFAULT FALSE,
+                            reply           TEXT,
+                            replied_at      DATETIME,
+                            INDEX idx_read (is_read),
+                            INDEX idx_created (created_at),
+                            INDEX idx_username (username),
+                            INDEX idx_username_created (username, created_at)
+                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                    """)
+                else:
+                    # 补充字段和索引
+                    cursor.execute("SHOW COLUMNS FROM contact_messages LIKE 'username'")
+                    if not cursor.fetchone():
+                        cursor.execute("ALTER TABLE contact_messages ADD COLUMN username VARCHAR(50)")
+                        try: cursor.fetchall()
+                        except: pass
+                    for stmt in [
+                        "ALTER TABLE contact_messages ADD INDEX idx_username (username)",
+                        "ALTER TABLE contact_messages ADD INDEX idx_username_created (username, created_at)"
+                    ]:
+                        try: cursor.execute(stmt)
+                        except Error: pass
+                        try: cursor.fetchall()
+                        except: pass
+
+                # 创建默认管理员
+                ADMIN_NAME = Config.ADMIN_USERNAME
+                ADMIN_PASSWORD = Config.ADMIN_PASSWORD
+                ADMIN_EMAIL = Config.ADMIN_EMAIL
+                cursor.execute("SELECT * FROM users WHERE username = %s", (ADMIN_NAME,))
+                admin_exists = cursor.fetchone()
+                if not admin_exists:
+                    salt = uuid.uuid4().hex
+                    password = hashlib.sha256(
+                        (ADMIN_PASSWORD + salt).encode()
+                    ).hexdigest()
+                    cursor.execute(
+                        """INSERT INTO users
+                        (username, email, password, salt, is_admin, is_block, expiration_date, remaining_times)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+                        (ADMIN_NAME, ADMIN_EMAIL, password, salt,
+                         True, False,
+                         os.getenv('ADMIN_EXPIRATION', '2099-12-31 23:59:59'),
+                         int(os.getenv('ADMIN_REMAINING_TIMES', 9999)))
+                    )
+
+                conn.commit()
+                cursor.close()
+                conn.close()
+
+                # 预热连接池
+                DatabaseManager._get_pool()
+
+        except Error as e:
+            print(f"数据库初始化错误: {e}")
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+    @staticmethod
+    def register_user(username, email, password, is_admin=False,
+                      is_block=False, expiration_days=30):
+        """注册新用户"""
+        conn = None
+        try:
+            conn = DatabaseManager.get_connection()
+            if conn:
+                cursor = conn.cursor()
+
+                cursor.execute(
+                    "SELECT * FROM users WHERE username = %s",
+                    (username,)
+                )
+                if cursor.fetchone():
+                    return False, "用户名已存在"
+
+                if not re.match(r"[^@]+@[^@]+\.[^@]+", email):
+                    return False, "邮箱格式不正确"
+
+                cursor.execute(
+                    "SELECT * FROM users WHERE email = %s",
+                    (email,)
+                )
+                if cursor.fetchone():
+                    return False, "邮箱已存在"
+
+                salt = uuid.uuid4().hex
+                password_hash = hashlib.sha256(
+                    (password + salt).encode()
+                ).hexdigest()
+                expiration_date = datetime.now() + timedelta(days=expiration_days)
+
+                cursor.execute(
+                    """INSERT INTO users
+                    (username, email, password, salt, is_admin, is_block,
+                     expiration_date, remaining_times)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+                    (username, email, password_hash, salt, is_admin,
+                     is_block, expiration_date, 20)
+                )
+
+                conn.commit()
+                cursor.close()
+                return True, "注册成功"
+        except Error as e:
+            if conn:
+                conn.rollback()  # 事务回滚
+            return False, f"注册失败: {e}"
+        finally:
+            if conn:
+                DatabaseManager.return_connection(conn)
+        return False, "注册失败"
+
+    @staticmethod
+    def authenticate_user(username_or_email, password, login_type='times'):
+        """验证用户登录"""
+        conn = None
+        try:
+            conn = DatabaseManager.get_connection()
+            if conn:
+                cursor = conn.cursor(dictionary=True)
+
+                cursor.execute(
+                    """SELECT id, username, email, password, salt, is_admin,
+                             is_block, expiration_date, remaining_times
+                    FROM users
+                    WHERE username = %s OR email = %s""",
+                    (username_or_email, username_or_email)
+                )
+                user = cursor.fetchone()
+
+                if not user:
+                    return False, None, "用户名或邮箱不存在"
+
+                input_hash = hashlib.sha256(
+                    (password + user['salt']).encode()
+                ).hexdigest()
+                if input_hash != user['password']:
+                    return False, None, "密码错误"
+
+                if user['is_block']:
+                    return False, None, "账户被封禁，请联系管理员"
+
+                if login_type == 'time':
+                    if datetime.now() > user['expiration_date']:
+                        return False, None, "账户已过期，请联系管理员续期"
+                elif login_type == 'times':
+                    if user['remaining_times'] <= 0:
+                        return False, None, "剩余次数不足，请联系管理员充值"
+
+                cursor.close()
+                return True, user, "登录成功"
+        except Error as e:
+            return False, None, f"登录失败: {e}"
+        finally:
+            if conn:
+                DatabaseManager.return_connection(conn)
+        return False, None, "登录失败"
+
+    @staticmethod
+    def reset_password(email, new_password):
+        """通过邮箱重置密码"""
+        conn = None
+        try:
+            conn = DatabaseManager.get_connection()
+            if conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT id, username FROM users WHERE email = %s", (email,))
+                user = cursor.fetchone()
+                if not user:
+                    return False, "该邮箱未注册"
+                salt = uuid.uuid4().hex
+                password_hash = hashlib.sha256((new_password + salt).encode()).hexdigest()
+                cursor.execute(
+                    "UPDATE users SET password = %s, salt = %s WHERE email = %s",
+                    (password_hash, salt, email)
+                )
+                conn.commit()
+                cursor.close()
+                return True, "密码重置成功"
+        except Error as e:
+            return False, f"重置失败: {e}"
+        finally:
+            if conn:
+                DatabaseManager.return_connection(conn)
+        return False, "重置失败"
+
+    @staticmethod
+    def get_user_by_username(username):
+        conn = None
+        try:
+            conn = DatabaseManager.get_connection()
+            if conn:
+                cursor = conn.cursor(dictionary=True)
+                cursor.execute(
+                    """SELECT id, username, email, is_admin, is_block,
+                             expiration_date, remaining_times
+                    FROM users WHERE username = %s""",
+                    (username,)
+                )
+                user = cursor.fetchone()
+                cursor.close()
+                return user
+        except Error as e:
+            print(f"获取用户信息错误: {e}")
+        finally:
+            if conn:
+                DatabaseManager.return_connection(conn)
+        return None
+
+    @staticmethod
+    def update_user_expiration(username, days_to_add):
+        """更新用户过期时间"""
+        conn = None
+        try:
+            conn = DatabaseManager.get_connection()
+            if conn:
+                cursor = conn.cursor()
+                # 直接用 SQL 表达式计算，避免先 SELECT
+                cursor.execute(
+                    """UPDATE users 
+                       SET expiration_date = COALESCE(expiration_date, NOW()) + INTERVAL %s DAY
+                       WHERE username = %s""",
+                    (days_to_add, username)
+                )
+                conn.commit()
+                affected = cursor.rowcount
+                cursor.close()
+                if affected == 0:
+                    return False, "用户不存在"
+                return True, f"成功更新用户 {username} 的过期时间"
+        except Error as e:
+            if conn:
+                conn.rollback()
+            return False, f"更新失败: {e}"
+        finally:
+            if conn:
+                DatabaseManager.return_connection(conn)
+        return False, "更新失败"
+
+    @staticmethod
+    def block_user(username):
+        """锁定/解锁用户"""
+        conn = None
+        try:
+            conn = DatabaseManager.get_connection()
+            if conn:
+                cursor = conn.cursor()
+                # 用 NOT 翻转，一条 SQL 检查是否生效
+                cursor.execute(
+                    "UPDATE users SET is_block = NOT is_block WHERE username = %s",
+                    (username,)
+                )
+                conn.commit()
+                affected = cursor.rowcount
+                if affected == 0:
+                    cursor.close()
+                    return False, "用户不存在"
+                cursor.execute(
+                    "SELECT is_block FROM users WHERE username = %s",
+                    (username,)
+                )
+                result = cursor.fetchone()
+                status = '锁定' if result[0] == 1 else '解锁'
+                cursor.close()
+                return True, f"成功{status}用户 {username}"
+        except Error as e:
+            if conn:
+                conn.rollback()
+            return False, f"更新失败: {e}"
+        finally:
+            if conn:
+                DatabaseManager.return_connection(conn)
+        return False, "更新失败"
+
+    @staticmethod
+    def get_all_users():
+        conn = None
+        try:
+            conn = DatabaseManager.get_connection()
+            if conn:
+                cursor = conn.cursor(dictionary=True)
+                cursor.execute(
+                    """SELECT id, email, username, is_admin, is_block,
+                             expiration_date, remaining_times
+                    FROM users ORDER BY is_admin DESC, username"""
+                )
+                users = cursor.fetchall()
+                cursor.close()
+                return True, users
+        except Error as e:
+            return False, f"获取失败: {e}"
+        finally:
+            if conn:
+                DatabaseManager.return_connection(conn)
+        return False, "获取失败"
+
+    @staticmethod
+    def increase_user_times(username, times_to_add):
+        """增加用户剩余次数"""
+        conn = None
+        try:
+            conn = DatabaseManager.get_connection()
+            if conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """UPDATE users 
+                       SET remaining_times = COALESCE(remaining_times, 0) + %s 
+                       WHERE username = %s""",
+                    (times_to_add, username)
+                )
+                conn.commit()
+                affected = cursor.rowcount
+                # 查询当前值用于提示
+                if affected > 0:
+                    cursor.execute(
+                        "SELECT remaining_times FROM users WHERE username = %s",
+                        (username,)
+                    )
+                    new_times = cursor.fetchone()[0]
+                    cursor.close()
+                    return True, f"成功为用户 {username} 增加 {times_to_add} 次，当前剩余 {new_times} 次"
+                cursor.close()
+                return False, "用户不存在"
+        except Error as e:
+            if conn:
+                conn.rollback()
+            return False, f"增加次数失败: {e}"
+        finally:
+            if conn:
+                DatabaseManager.return_connection(conn)
+        return False, "增加次数失败"
+
+    @staticmethod
+    def decrease_user_times(username, times_to_decrease=1):
+        """减少用户剩余次数"""
+        conn = None
+        try:
+            conn = DatabaseManager.get_connection()
+            if conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """UPDATE users 
+                       SET remaining_times = GREATEST(COALESCE(remaining_times, 0) - %s, 0)
+                       WHERE username = %s""",
+                    (times_to_decrease, username)
+                )
+                conn.commit()
+                affected = cursor.rowcount
+                if affected > 0:
+                    cursor.execute(
+                        "SELECT remaining_times FROM users WHERE username = %s",
+                        (username,)
+                    )
+                    new_times = cursor.fetchone()[0]
+                    cursor.close()
+                    return True, f"成功减少用户 {username} {times_to_decrease} 次，当前剩余 {new_times} 次"
+                cursor.close()
+                return False, "用户不存在"
+        except Error as e:
+            if conn:
+                conn.rollback()
+            print(f"减少次数数据库错误: {e}")
+            return False, f"减少次数失败: {e}"
+        finally:
+            if conn:
+                DatabaseManager.return_connection(conn)
+        return False, "减少次数失败"
+
+    @staticmethod
+    def log_conversion(username, mode, filename, success, message=""):
+        """记录转换操作日志"""
+        conn = None
+        try:
+            conn = DatabaseManager.get_connection()
+            if conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """INSERT INTO conversion_logs 
+                    (username, mode, filename, success, message)
+                    VALUES (%s, %s, %s, %s, %s)""",
+                    (username, mode, filename, success, message)
+                )
+                conn.commit()
+                cursor.close()
+                return True
+        except Error as e:
+            print(f"记录日志错误: {e}")
+            if conn:
+                conn.rollback()
+        finally:
+            if conn:
+                DatabaseManager.return_connection(conn)
+        return False
+
+    @staticmethod
+    def get_conversion_logs(username=None, limit=100, offset=0):
+        """获取转换日志（支持按用户筛选）"""
+        conn = None
+        try:
+            conn = DatabaseManager.get_connection()
+            if conn:
+                cursor = conn.cursor(dictionary=True)
+                if username:
+                    cursor.execute(
+                        """SELECT id, username, mode, filename, success, message, operation_time
+                        FROM conversion_logs 
+                        WHERE username = %s
+                        ORDER BY operation_time DESC
+                        LIMIT %s OFFSET %s""",
+                        (username, limit, offset)
+                    )
+                else:
+                    cursor.execute(
+                        """SELECT id, username, mode, filename, success, message, operation_time
+                        FROM conversion_logs 
+                        ORDER BY operation_time DESC
+                        LIMIT %s OFFSET %s""",
+                        (limit, offset)
+                    )
+                logs = cursor.fetchall()
+                cursor.close()
+                return True, logs
+        except Error as e:
+            return False, f"获取日志失败: {e}"
+        finally:
+            if conn:
+                DatabaseManager.return_connection(conn)
+        return False, []
+
+    @staticmethod
+    def get_log_count(username=None):
+        """获取日志总数"""
+        conn = None
+        try:
+            conn = DatabaseManager.get_connection()
+            if conn:
+                cursor = conn.cursor()
+                if username:
+                    cursor.execute(
+                        "SELECT COUNT(*) FROM conversion_logs WHERE username = %s",
+                        (username,)
+                    )
+                else:
+                    cursor.execute("SELECT COUNT(*) FROM conversion_logs")
+                count = cursor.fetchone()[0]
+                cursor.close()
+                return True, count
+        except Error as e:
+            return False, 0
+        finally:
+            if conn:
+                DatabaseManager.return_connection(conn)
+        return False, 0
+
+    @staticmethod
+    def create_announcement(title, content, announce_type='info', priority=0, created_by='admin'):
+        """创建公告"""
+        conn = None
+        try:
+            conn = DatabaseManager.get_connection()
+            if conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """INSERT INTO announcements 
+                    (title, content, type, priority, created_by)
+                    VALUES (%s, %s, %s, %s, %s)""",
+                    (title, content, announce_type, priority, created_by)
+                )
+                conn.commit()
+                cursor.close()
+                return True, "公告发布成功"
+        except Error as e:
+            if conn:
+                conn.rollback()
+            return False, f"发布失败: {e}"
+        finally:
+            if conn:
+                DatabaseManager.return_connection(conn)
+        return False, "发布失败"
+
+    @staticmethod
+    def get_active_announcements(limit=10):
+        """获取活跃的公告（按优先级排序）"""
+        conn = None
+        try:
+            conn = DatabaseManager.get_connection()
+            if conn:
+                cursor = conn.cursor(dictionary=True)
+                cursor.execute(
+                    """SELECT id, title, content, type, priority, created_by, created_at
+                    FROM announcements 
+                    WHERE is_active = TRUE
+                    ORDER BY priority DESC, created_at DESC
+                    LIMIT %s""",
+                    (limit,)
+                )
+                announcements = cursor.fetchall()
+                # 处理 datetime 对象
+                for ann in announcements:
+                    if ann.get('created_at'):
+                        ann['created_at'] = str(ann['created_at'])
+                cursor.close()
+                return True, announcements
+        except Error as e:
+            return False, f"获取公告失败: {e}"
+        finally:
+            if conn:
+                DatabaseManager.return_connection(conn)
+        return False, []
+
+    @staticmethod
+    def get_all_announcements():
+        """获取所有公告（包括未激活的）"""
+        conn = None
+        try:
+            conn = DatabaseManager.get_connection()
+            if conn:
+                cursor = conn.cursor(dictionary=True)
+                cursor.execute(
+                    """SELECT id, title, content, type, is_active, priority, created_by, created_at, updated_at
+                    FROM announcements 
+                    ORDER BY priority DESC, created_at DESC"""
+                )
+                announcements = cursor.fetchall()
+                for ann in announcements:
+                    if ann.get('created_at'):
+                        ann['created_at'] = str(ann['created_at'])
+                    if ann.get('updated_at'):
+                        ann['updated_at'] = str(ann['updated_at'])
+                cursor.close()
+                return True, announcements
+        except Error as e:
+            return False, f"获取公告失败: {e}"
+        finally:
+            if conn:
+                DatabaseManager.return_connection(conn)
+        return False, []
+
+    @staticmethod
+    def toggle_announcement(announce_id):
+        """切换公告激活状态"""
+        conn = None
+        try:
+            conn = DatabaseManager.get_connection()
+            if conn:
+                cursor = conn.cursor()
+                # 一条 SQL 翻转，通过 rowcount 判断是否存在
+                cursor.execute(
+                    "UPDATE announcements SET is_active = NOT is_active WHERE id = %s",
+                    (announce_id,)
+                )
+                conn.commit()
+                affected = cursor.rowcount
+                if affected == 0:
+                    cursor.close()
+                    return False, "公告不存在"
+                cursor.execute(
+                    "SELECT is_active FROM announcements WHERE id = %s",
+                    (announce_id,)
+                )
+                result = cursor.fetchone()
+                status = '激活' if result[0] == 1 else '停用'
+                cursor.close()
+                return True, f"已{status}公告"
+        except Error as e:
+            if conn:
+                conn.rollback()
+            return False, f"操作失败: {e}"
+        finally:
+            if conn:
+                DatabaseManager.return_connection(conn)
+        return False, "操作失败"
+
+    @staticmethod
+    def delete_announcement(announce_id):
+        """删除公告"""
+        conn = None
+        try:
+            conn = DatabaseManager.get_connection()
+            if conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "DELETE FROM announcements WHERE id = %s",
+                    (announce_id,)
+                )
+                conn.commit()
+                cursor.close()
+                return True, "公告已删除"
+        except Error as e:
+            if conn:
+                conn.rollback()
+            return False, f"删除失败: {e}"
+        finally:
+            if conn:
+                DatabaseManager.return_connection(conn)
+        return False, "删除失败"
+
+    # ==================== IP访问记录和黑名单管理 ====================
+
+    @staticmethod
+    def log_ip_access(ip_address, request_url='', request_method='GET', 
+                     user_agent='', referer='', status_code=200, response_time=0):
+        """记录IP访问日志"""
+        conn = None
+        try:
+            conn = DatabaseManager.get_connection()
+            if conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """INSERT INTO ip_access_logs 
+                    (ip_address, request_url, request_method, user_agent, referer, status_code, response_time)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+                    (ip_address, request_url, request_method, user_agent, referer, status_code, response_time)
+                )
+                conn.commit()
+                cursor.close()
+                return True
+        except Error as e:
+            print(f"记录IP访问日志错误: {e}")
+            if conn:
+                conn.rollback()
+        finally:
+            if conn:
+                DatabaseManager.return_connection(conn)
+        return False
+
+    # IP黑名单缓存：缓存60秒，减少数据库查询
+    _ip_blocked_cache = {}
+    _ip_blocked_cache_time = 0
+    _ip_blocked_cache_lock = threading.Lock()
+
+    @staticmethod
+    def is_ip_blocked(ip_address):
+        """检查IP是否在黑名单中（带60秒缓存）"""
+        # 先查缓存
+        now = datetime.now().timestamp()
+        with DatabaseManager._ip_blocked_cache_lock:
+            if now - DatabaseManager._ip_blocked_cache_time < Config.IP_BLOCKED_CACHE_TIME:
+                cached = DatabaseManager._ip_blocked_cache.get(ip_address)
+                if cached is not None:
+                    return cached
+        # 缓存未命中，查数据库
+        conn = None
+        try:
+            conn = DatabaseManager.get_connection()
+            if conn:
+                cursor = conn.cursor(dictionary=True)
+                cursor.execute(
+                    """SELECT * FROM ip_blacklist 
+                    WHERE ip_address = %s AND is_active = TRUE 
+                    AND (expires_at IS NULL OR expires_at > NOW())""",
+                    (ip_address,)
+                )
+                result = cursor.fetchone()
+                cursor.close()
+                is_blocked = result is not None
+                # 更新缓存
+                with DatabaseManager._ip_blocked_cache_lock:
+                    DatabaseManager._ip_blocked_cache[ip_address] = (is_blocked, result)
+                    DatabaseManager._ip_blocked_cache_time = now
+                return is_blocked, result
+        except Error as e:
+            print(f"检查IP黑名单错误: {e}")
+        finally:
+            if conn:
+                DatabaseManager.return_connection(conn)
+        return False, None
+
+    @staticmethod
+    def block_ip(ip_address, reason='', blocked_by='admin', expire_days=None):
+        """封禁IP——使用 INSERT...ON DUPLICATE KEY UPDATE 避免 SELECT"""
+        conn = None
+        try:
+            conn = DatabaseManager.get_connection()
+            if conn:
+                cursor = conn.cursor()
+                expires_at = None
+                if expire_days:
+                    expires_at = datetime.now() + timedelta(days=expire_days)
+                
+                # 一条 SQL 搞定：存在则更新，不存在则插入
+                cursor.execute(
+                    """INSERT INTO ip_blacklist (ip_address, reason, blocked_by, expires_at, is_active)
+                    VALUES (%s, %s, %s, %s, TRUE)
+                    ON DUPLICATE KEY UPDATE
+                        reason = VALUES(reason),
+                        blocked_by = VALUES(blocked_by),
+                        blocked_at = NOW(),
+                        expires_at = VALUES(expires_at),
+                        is_active = TRUE""",
+                    (ip_address, reason, blocked_by, expires_at)
+                )
+                conn.commit()
+                cursor.close()
+                # 清除缓存
+                with DatabaseManager._ip_blocked_cache_lock:
+                    DatabaseManager._ip_blocked_cache.pop(ip_address, None)
+                return True, f"IP {ip_address} 已被封禁"
+        except Error as e:
+            if conn:
+                conn.rollback()
+            return False, f"封禁失败: {e}"
+        finally:
+            if conn:
+                DatabaseManager.return_connection(conn)
+        return False, "封禁失败"
+
+    @staticmethod
+    def unblock_ip(ip_address):
+        """解封IP"""
+        conn = None
+        try:
+            conn = DatabaseManager.get_connection()
+            if conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "UPDATE ip_blacklist SET is_active = FALSE WHERE ip_address = %s",
+                    (ip_address,)
+                )
+                conn.commit()
+                cursor.close()
+                # 清除缓存
+                with DatabaseManager._ip_blocked_cache_lock:
+                    DatabaseManager._ip_blocked_cache.pop(ip_address, None)
+                return True, f"IP {ip_address} 已解封"
+        except Error as e:
+            if conn:
+                conn.rollback()
+            return False, f"解封失败: {e}"
+        finally:
+            if conn:
+                DatabaseManager.return_connection(conn)
+        return False, "解封失败"
+
+    @staticmethod
+    def get_ip_statistics(hours=24):
+        """获取IP访问统计信息"""
+        conn = None
+        try:
+            conn = DatabaseManager.get_connection()
+            if conn:
+                cursor = conn.cursor(dictionary=True)
+                
+                # 总访问量
+                cursor.execute(
+                    """SELECT COUNT(*) as total_requests,
+                             COUNT(DISTINCT ip_address) as unique_ips
+                    FROM ip_access_logs
+                    WHERE access_time >= DATE_SUB(NOW(), INTERVAL %s HOUR)""",
+                    (hours,)
+                )
+                stats = cursor.fetchone()
+                
+                # IP访问次数排行
+                cursor.execute(
+                    """SELECT ip_address, COUNT(*) as visit_count,
+                             MAX(access_time) as last_visit,
+                             MIN(access_time) as first_visit
+                    FROM ip_access_logs
+                    WHERE access_time >= DATE_SUB(NOW(), INTERVAL %s HOUR)
+                    GROUP BY ip_address
+                    ORDER BY visit_count DESC
+                    LIMIT 50""",
+                    (hours,)
+                )
+                top_ips = cursor.fetchall()
+                
+                # 处理 datetime 对象
+                for ip in top_ips:
+                    if ip.get('last_visit'):
+                        ip['last_visit'] = str(ip['last_visit'])
+                    if ip.get('first_visit'):
+                        ip['first_visit'] = str(ip['first_visit'])
+                
+                # 被封禁的IP列表
+                cursor.execute(
+                    """SELECT ip_address, reason, blocked_by, blocked_at, expires_at, is_active
+                    FROM ip_blacklist
+                    ORDER BY blocked_at DESC"""
+                )
+                blocked_ips = cursor.fetchall()
+                
+                for ip in blocked_ips:
+                    if ip.get('blocked_at'):
+                        ip['blocked_at'] = str(ip['blocked_at'])
+                    if ip.get('expires_at'):
+                        ip['expires_at'] = str(ip['expires_at'])
+                
+                cursor.close()
+                
+                return True, {
+                    'stats': stats,
+                    'top_ips': top_ips,
+                    'blocked_ips': blocked_ips
+                }
+        except Error as e:
+            return False, f"获取统计信息失败: {e}"
+        finally:
+            if conn:
+                DatabaseManager.return_connection(conn)
+        return False, {}
+
+    @staticmethod
+    def get_ip_access_timeline(hours=24, limit=100):
+        """获取IP访问时间线数据（用于图表）"""
+        conn = None
+        try:
+            conn = DatabaseManager.get_connection()
+            if conn:
+                cursor = conn.cursor(dictionary=True)
+                
+                # 按小时统计访问量
+                cursor.execute(
+                    """SELECT DATE_FORMAT(access_time, '%Y-%m-%d %H:00:00') as time_slot,
+                             COUNT(*) as request_count,
+                             COUNT(DISTINCT ip_address) as unique_ips
+                    FROM ip_access_logs
+                    WHERE access_time >= DATE_SUB(NOW(), INTERVAL %s HOUR)
+                    GROUP BY time_slot
+                    ORDER BY time_slot ASC""",
+                    (hours,)
+                )
+                timeline = cursor.fetchall()
+                
+                cursor.close()
+                return True, timeline
+        except Error as e:
+            return False, f"获取时间线数据失败: {e}"
+        finally:
+            if conn:
+                DatabaseManager.return_connection(conn)
+        return False, []
+
+    @staticmethod
+    def get_ip_location(ip_address):
+        """获取IP的地理位置信息（使用ipapi.co免费API）"""
+        try:
+            import requests
+            # 检查是否为内网/私有IP
+            try:
+                ip_obj = ipaddress.ip_address(ip_address)
+                if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local:
+                    return {
+                        'country': '内网',
+                        'city': '本地网络',
+                        'latitude': float(os.getenv('DEFAULT_LATITUDE', 39.9042)),
+                        'longitude': float(os.getenv('DEFAULT_LONGITUDE', 116.4074))
+                    }
+            except ValueError:
+                pass
+            
+            # 调用ipapi.co API（免费，无需密钥）
+            response = requests.get(f'https://ipapi.co/{ip_address}/json/', timeout=Config.IP_LOCATION_API_TIMEOUT)
+            if response.status_code == 200:
+                data = response.json()
+                if data.get('error'):
+                    return None
+                
+                return {
+                    'country': data.get('country_name', '未知'),
+                    'city': data.get('city', '未知'),
+                    'latitude': float(data.get('latitude', 0)),
+                    'longitude': float(data.get('longitude', 0))
+                }
+            return None
+        except Exception as e:
+            print(f"获取IP位置失败 {ip_address}: {e}")
+            return None
+
+    @staticmethod
+    def update_ip_location(ip_address, country, city, latitude, longitude):
+        """更新IP的地理位置信息"""
+        conn = None
+        try:
+            conn = DatabaseManager.get_connection()
+            if conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """UPDATE ip_access_logs 
+                    SET country = %s, city = %s, latitude = %s, longitude = %s
+                    WHERE ip_address = %s AND (country IS NULL OR country = '')""",
+                    (country, city, latitude, longitude, ip_address)
+                )
+                conn.commit()
+                cursor.close()
+                return True
+        except Error as e:
+            if conn:
+                conn.rollback()
+            print(f"更新IP位置失败: {e}")
+        finally:
+            if conn:
+                DatabaseManager.return_connection(conn)
+        return False
+
+    @staticmethod
+    def get_ip_map_data(hours=24):
+        """获取用于地图展示的IP数据"""
+        conn = None
+        try:
+            conn = DatabaseManager.get_connection()
+            if conn:
+                cursor = conn.cursor(dictionary=True)
+                
+                # 获取有地理位置信息的IP数据
+                cursor.execute(
+                    """SELECT ip_address, country, city, latitude, longitude,
+                             COUNT(*) as visit_count,
+                             MAX(access_time) as last_visit
+                    FROM ip_access_logs
+                    WHERE access_time >= DATE_SUB(NOW(), INTERVAL %s HOUR)
+                      AND latitude IS NOT NULL AND longitude IS NOT NULL
+                    GROUP BY ip_address, country, city, latitude, longitude
+                    ORDER BY visit_count DESC""",
+                    (hours,)
+                )
+                ip_locations = cursor.fetchall()
+                
+                # 处理数据
+                for ip in ip_locations:
+                    if ip.get('last_visit'):
+                        ip['last_visit'] = str(ip['last_visit'])
+                    # 确保经纬度是浮点数
+                    if ip.get('latitude'):
+                        ip['latitude'] = float(ip['latitude'])
+                    if ip.get('longitude'):
+                        ip['longitude'] = float(ip['longitude'])
+                
+                cursor.close()
+                return True, ip_locations
+        except Error as e:
+            return False, f"获取地图数据失败: {e}"
+        finally:
+            if conn:
+                DatabaseManager.return_connection(conn)
+        return False, []
+
+    # ==================== 联系消息管理 ====================
+
+    @staticmethod
+    def submit_contact_message(subject, message, username=None, name='', email=''):
+        """提交联系消息"""
+        conn = None
+        try:
+            conn = DatabaseManager.get_connection()
+            if conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """INSERT INTO contact_messages (username, name, email, subject, message)
+                    VALUES (%s, %s, %s, %s, %s)""",
+                    (username, name, email, subject, message)
+                )
+                conn.commit()
+                cursor.close()
+                return True, "消息发送成功，感谢您的反馈！"
+        except Error as e:
+            if conn:
+                conn.rollback()
+            return False, f"发送失败: {e}"
+        finally:
+            if conn:
+                DatabaseManager.return_connection(conn)
+        return False, "发送失败"
+
+    @staticmethod
+    def get_messages_by_username(username, page=1, per_page=20):
+        """获取指定用户的消息列表"""
+        conn = None
+        try:
+            conn = DatabaseManager.get_connection()
+            if conn:
+                cursor = conn.cursor(dictionary=True)
+                offset = (page - 1) * per_page
+                cursor.execute(
+                    """SELECT * FROM contact_messages
+                    WHERE username = %s
+                    ORDER BY created_at DESC
+                    LIMIT %s OFFSET %s""",
+                    (username, per_page, offset)
+                )
+                messages = cursor.fetchall()
+                for m in messages:
+                    if m.get('created_at'):
+                        m['created_at'] = str(m['created_at'])
+                    if m.get('replied_at'):
+                        m['replied_at'] = str(m['replied_at'])
+                # 查询总数
+                cursor.execute(
+                    "SELECT COUNT(*) as total FROM contact_messages WHERE username = %s",
+                    (username,)
+                )
+                total = cursor.fetchone()['total']
+                cursor.close()
+                return True, messages, total
+        except Error as e:
+            return False, [], 0
+        finally:
+            if conn:
+                DatabaseManager.return_connection(conn)
+        return False, [], 0
+
+    @staticmethod
+    def get_contact_messages(page=1, per_page=20):
+        """获取联系消息列表（分页）"""
+        conn = None
+        try:
+            conn = DatabaseManager.get_connection()
+            if conn:
+                cursor = conn.cursor(dictionary=True)
+                offset = (page - 1) * per_page
+                cursor.execute(
+                    """SELECT * FROM contact_messages
+                    ORDER BY created_at DESC
+                    LIMIT %s OFFSET %s""",
+                    (per_page, offset)
+                )
+                messages = cursor.fetchall()
+                # 处理 datetime
+                for m in messages:
+                    if m.get('created_at'):
+                        m['created_at'] = str(m['created_at'])
+                    if m.get('replied_at'):
+                        m['replied_at'] = str(m['replied_at'])
+                # 获取总数
+                cursor.execute("SELECT COUNT(*) as total FROM contact_messages")
+                total = cursor.fetchone()['total']
+                cursor.close()
+                return True, messages, total
+        except Error as e:
+            return False, [], 0
+        finally:
+            if conn:
+                DatabaseManager.return_connection(conn)
+        return False, [], 0
+
+    @staticmethod
+    def get_unread_contact_count():
+        """获取未读联系消息数量"""
+        conn = None
+        try:
+            conn = DatabaseManager.get_connection()
+            if conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT COUNT(*) FROM contact_messages WHERE is_read = FALSE"
+                )
+                count = cursor.fetchone()[0]
+                cursor.close()
+                return count
+        except Error as e:
+            print(f"获取未读消息数失败: {e}")
+        finally:
+            if conn:
+                DatabaseManager.return_connection(conn)
+        return 0
+
+    @staticmethod
+    def mark_message_read(message_id):
+        """标记消息为已读"""
+        conn = None
+        try:
+            conn = DatabaseManager.get_connection()
+            if conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "UPDATE contact_messages SET is_read = TRUE WHERE id = %s",
+                    (message_id,)
+                )
+                conn.commit()
+                cursor.close()
+                return True
+        except Error as e:
+            if conn:
+                conn.rollback()
+            print(f"标记已读失败: {e}")
+        finally:
+            if conn:
+                DatabaseManager.return_connection(conn)
+        return False
+
+    @staticmethod
+    def reply_message(message_id, reply_text):
+        """回复联系消息"""
+        conn = None
+        try:
+            conn = DatabaseManager.get_connection()
+            if conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """UPDATE contact_messages 
+                    SET reply = %s, replied_at = NOW(), is_read = TRUE
+                    WHERE id = %s""",
+                    (reply_text, message_id)
+                )
+                conn.commit()
+                cursor.close()
+                return True, "回复成功"
+        except Error as e:
+            if conn:
+                conn.rollback()
+            return False, f"回复失败: {e}"
+        finally:
+            if conn:
+                DatabaseManager.return_connection(conn)
+        return False, "回复失败"
+
+    @staticmethod
+    def get_unread_reply_count(username, since_time=None):
+        """获取用户自上次访问以来的新回复数"""
+        conn = None
+        try:
+            conn = DatabaseManager.get_connection()
+            if conn:
+                cursor = conn.cursor()
+                if since_time:
+                    cursor.execute(
+                        """SELECT COUNT(*) FROM contact_messages
+                        WHERE username = %s AND reply IS NOT NULL
+                        AND replied_at > %s""",
+                        (username, since_time)
+                    )
+                else:
+                    # 没有时间基准时返回 0，避免把所有历史回复都算作未读
+                    cursor.execute(
+                        """SELECT COUNT(*) FROM contact_messages
+                        WHERE 1 = 0"""
+                    )
+                count = cursor.fetchone()[0]
+                cursor.close()
+                return count
+        except Error as e:
+            print(f"获取未读回复数失败: {e}")
+        finally:
+            if conn:
+                DatabaseManager.return_connection(conn)
+        return 0
+
+
+    

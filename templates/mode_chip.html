@@ -1,0 +1,40 @@
+<label class="mode-chip">
+    <input class="mode-radio" type="radio" name="mode" value="{{ mode }}"
+           data-input-type="{{ 'file' if mode in ['word转pdf','pdf转word','pdf转图片','csv转excel','excel转csv','PDF OCR识别','图片OCR识别','md转pdf','excel转pdf','ppt转pdf','html转pdf'] else 'directory' if mode in ['图片转pdf','图片转ppt'] else 'files' }}">
+    <span class="chip-label">
+        <span class="chip-icon">
+            {% if 'word' in mode and 'pdf' not in mode %}
+                <i class="fas fa-file-word" style="color:#2563eb;"></i>
+            {% elif 'pdf' in mode and 'word' in mode %}
+                <i class="fas fa-file-pdf" style="color:#dc2626;"></i>
+            {% elif 'pdf' in mode and 'excel' in mode %}
+                <i class="fas fa-file-excel" style="color:#16a34a;"></i>
+            {% elif 'pdf' in mode and 'ppt' in mode %}
+                <i class="fas fa-file-powerpoint" style="color:#ea580c;"></i>
+            {% elif 'pdf' in mode and 'html' in mode %}
+                <i class="fas fa-code" style="color:#2563eb;"></i>
+            {% elif 'pdf' in mode and '图片' in mode %}
+                <i class="fas fa-images" style="color:#0891b2;"></i>
+            {% elif 'pdf' in mode %}
+                <i class="fas fa-file-pdf" style="color:#dc2626;"></i>
+            {% elif '图片' in mode and 'ppt' in mode %}
+                <i class="fas fa-file-powerpoint" style="color:#ea580c;"></i>
+            {% elif '图片' in mode %}
+                <i class="fas fa-file-image" style="color:#16a34a;"></i>
+            {% elif 'excel' in mode %}
+                <i class="fas fa-file-excel" style="color:#16a34a;"></i>
+            {% elif 'csv' in mode %}
+                <i class="fas fa-file-csv" style="color:#0891b2;"></i>
+            {% elif 'OCR' in mode %}
+                <i class="fas fa-eye" style="color:#7c3aed;"></i>
+            {% elif '合并' in mode %}
+                <i class="fas fa-object-group" style="color:#ea580c;"></i>
+            {% elif 'md' in mode %}
+                <i class="fab fa-markdown" style="color:#0891b2;"></i>
+            {% else %}
+                <i class="fas fa-file" style="color:#94a3b8;"></i>
+            {% endif %}
+        </span>
+        {{ mode }}
+    </span>
+</label>

@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}文件转化工具{% endblock %}</title>
+    <!-- 预连接国内 CDN -->
+    <link rel="preconnect" href="{{ CDN_BASE_URL }}" crossorigin>
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+    <!-- 关键CSS同步加载（国内 CDN） -->
+    <link href="{{ CDN_BASE_URL }}/twitter-bootstrap/5.3.2/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="{{ CDN_BASE_URL }}/font-awesome/6.4.2/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <!-- 字体：使用系统字体栈，避免 Google Fonts 国内加载慢 -->
+    <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }
+    </style>
+</head>
+<body>
+    <!-- 动态粒子背景（已禁用，解决滚动掉帧） -->
+    <!-- <div id="particles-js"></div> -->
+
+    <!-- 导航栏 -->
+    <nav class="navbar navbar-expand-lg glass-nav">
+        <div class="container">
+            <a class="navbar-brand" href="{{ url_for('converter.index') }}">
+                <i class="fas fa-file-alt me-2"></i>文件转化工具
+            </a>
+            {% if session.get('username') %}
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto align-items-center">
+                    <li class="nav-item">
+                        <span class="nav-link" style="color: #555;">
+                            <i class="fas fa-user-circle me-1"></i>{{ session['username'] }}
+                            {% if session.get('is_admin') %}
+                            <span class="badge-glow">管理员</span>
+                            {% endif %}
+                        </span>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link nav-btn position-relative" href="{{ url_for('converter.contact') }}">
+                            <i class="fas fa-envelope me-1"></i>联系作者
+                            <span id="userMsgBadge" class="badge rounded-pill bg-success" 
+                                  style="display:none;font-size:10px;position:absolute;top:2px;right:2px;min-width:16px;">0</span>
+                        </a>
+                    </li>
+                    {% if session.get('is_admin') %}
+                    <li class="nav-item">
+                        <a class="nav-link nav-btn" href="{{ url_for('admin.admin_panel') }}">
+                            <i class="fas fa-shield-alt me-1"></i>管理面板
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link nav-btn position-relative" href="{{ url_for('admin.manage_contacts') }}">
+                            <i class="fas fa-inbox me-1"></i>联系消息
+                            <span id="msgBadge" class="badge rounded-pill bg-danger" 
+                                  style="display:none;font-size:10px;position:absolute;top:2px;right:2px;min-width:16px;">0</span>
+                        </a>
+                    </li>
+                    {% endif %}
+                    <li class="nav-item">
+                        <a class="nav-link nav-btn logout-btn" href="{{ url_for('auth.logout') }}">
+                            <i class="fas fa-sign-out-alt me-1"></i>退出
+                        </a>
+                    </li>
+                </ul>
+            </div>
+            {% endif %}
+        </div>
+    </nav>
+
+    <!-- Flash 消息 -->
+    <div class="container mt-3" id="flashArea">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        {% for category, message in messages %}
+        <div class="alert alert-custom alert-{{ 'danger' if category == 'error' else 'success' }} alert-dismissible fade show"
+             role="alert">
+            <i class="fas fa-{{ 'exclamation-circle' if category == 'error' else 'check-circle' }} me-2"></i>
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+        {% endfor %}
+        {% endif %}
+        {% endwith %}
+    </div>
+
+    <!-- 主要内容区域 -->
+    <div class="container mt-4">
+        {% block content %}{% endblock %}
+    </div>
+
+    <!-- jQuery 必须同步加载，后续内联脚本依赖 $  -->
+    <script src="{{ CDN_BASE_URL }}/jquery/3.7.1/jquery.min.js"></script>
+    <script src="{{ CDN_BASE_URL }}/twitter-bootstrap/5.3.2/js/bootstrap.bundle.min.js" defer></script>
+
+    <script>
+    // Flash 消息 3 秒后自动消失
+    $('#flashArea .alert').each(function() {
+        var $el = $(this);
+        setTimeout(function() { $el.alert('close'); }, 1000);
+    });
+
+    // 消息未读数 - 页面可见时才轮询，60秒一次减少请求
+    var badgeTimer = null;
+    function updateAllBadges() {
+        // 只在页面可见时请求
+        if (document.hidden) return;
+        {% if session.get('is_admin') %}
+        fetch('/admin/unread_count')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                var badge = document.getElementById('msgBadge');
+                if (badge && data.count > 0) {
+                    badge.textContent = data.count > 99 ? '99+' : data.count;
+                    badge.style.display = 'inline';
+                } else if (badge) {
+                    badge.style.display = 'none';
+                }
+            })
+            .catch(function() {});
+        {% endif %}
+        {% if session.get('username') and not session.get('is_admin') %}
+        fetch('/api/user_unread_replies')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                var badge = document.getElementById('userMsgBadge');
+                if (badge && data.count > 0) {
+                    badge.textContent = data.count > 99 ? '99+' : data.count;
+                    badge.style.display = 'inline';
+                } else if (badge) {
+                    badge.style.display = 'none';
+                }
+            })
+            .catch(function() {});
+        {% endif %}
+    }
+    // 页面刚加载时查一次
+    if (!document.hidden) updateAllBadges();
+    // 每60秒轮询一次（页面前台可见时才会执行）
+    badgeTimer = setInterval(updateAllBadges, 60000);
+    // 切换到前台时立即刷新
+    document.addEventListener('visibilitychange', function() {
+        if (!document.hidden) updateAllBadges();
+    });
+    </script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,756 @@
+{% extends "base.html" %}
+
+{% block title %}IP访问分析 - 文件转化工具{% endblock %}
+
+{% block content %}
+<!-- 引入 Leaflet 地图库（defer 避免阻塞渲染） -->
+<link rel="stylesheet" href="{{ CDN_BASE_URL }}/leaflet/1.9.4/leaflet.css" media="print" onload="this.media='all'">
+<script src="{{ CDN_BASE_URL }}/leaflet/1.9.4/leaflet.js" defer></script>
+
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="glass-card">
+            <h2 class="mb-3"><i class="fas fa-chart-line me-2"></i>IP访问分析与封禁管理</h2>
+            
+            <!-- 时间范围选择 -->
+            <div class="row align-items-center mb-3">
+                <div class="col-md-6">
+                    <form method="GET" action="{{ url_for('admin.ip_analysis') }}" class="d-flex gap-2">
+                        <label class="form-label mb-0" style="color: #555;">统计时间范围：</label>
+                        <select name="hours" class="form-select form-select-sm" style="width: auto;" onchange="this.form.submit()">
+                            <option value="1" {% if hours == 1 %}selected{% endif %}>最近1小时</option>
+                            <option value="6" {% if hours == 6 %}selected{% endif %}>最近6小时</option>
+                            <option value="12" {% if hours == 12 %}selected{% endif %}>最近12小时</option>
+                            <option value="24" {% if hours == 24 %}selected{% endif %}>最近24小时</option>
+                            <option value="48" {% if hours == 48 %}selected{% endif %}>最近48小时</option>
+                            <option value="72" {% if hours == 72 %}selected{% endif %}>最近72小时</option>
+                            <option value="168" {% if hours == 168 %}selected{% endif %}>最近7天</option>
+                        </select>
+                    </form>
+                </div>
+                <div class="col-md-6 text-end">
+                    <button class="btn btn-sm btn-outline-secondary" onclick="location.reload()">
+                        <i class="fas fa-sync-alt me-1"></i>刷新数据
+                    </button>
+                    <button class="btn btn-sm btn-info ms-2" onclick="refreshIpLocations()">
+                        <i class="fas fa-map-marker-alt me-1"></i>刷新IP位置
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 统计概览卡片 -->
+{% if stats %}
+<div class="row mb-4">
+    <div class="col-md-4">
+        <div class="glass-card stat-card">
+            <div class="d-flex align-items-center">
+                <div class="stat-icon bg-primary">
+                    <i class="fas fa-globe"></i>
+                </div>
+                <div class="ms-3">
+                    <h6 class="text-muted mb-1">总访问量</h6>
+                    <h3 class="mb-0">{{ stats.total_requests }}</h3>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="glass-card stat-card">
+            <div class="d-flex align-items-center">
+                <div class="stat-icon bg-success">
+                    <i class="fas fa-users"></i>
+                </div>
+                <div class="ms-3">
+                    <h6 class="text-muted mb-1">独立IP数</h6>
+                    <h3 class="mb-0">{{ stats.unique_ips }}</h3>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="glass-card stat-card">
+            <div class="d-flex align-items-center">
+                <div class="stat-icon bg-danger">
+                    <i class="fas fa-ban"></i>
+                </div>
+                <div class="ms-3">
+                    <h6 class="text-muted mb-1">已封禁IP</h6>
+                    <h3 class="mb-0">{{ blocked_ips|length }}</h3>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- IP地理位置地图 -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="glass-card">
+            <h5 class="mb-3"><i class="fas fa-globe-americas me-2"></i>IP地理位置分布</h5>
+            <div id="ipMap" style="height: 400px; border-radius: 10px; background-color: #f0f0f0;"></div>
+            <div class="mt-3 text-center">
+                <small class="text-muted">
+                    <i class="fas fa-info-circle me-1"></i>
+                    地图显示最近 <strong>{{ hours }}</strong> 小时的访问IP分布 | 
+                    点击标记查看详细信息
+                </small>
+            </div>
+            <!-- 手动测试IP位置 -->
+            <div class="row mt-3 justify-content-center">
+                <div class="col-md-6">
+                    <div class="input-group">
+                        <span class="input-group-text bg-secondary text-white border-secondary">
+                            <i class="fas fa-search"></i>
+                        </span>
+                        <input type="text" id="testIpInput" class="form-control bg-dark text-white border-secondary" 
+                               placeholder="输入公网IP地址测试位置（如 8.8.8.8）" 
+                               onkeydown="if(event.key==='Enter') testIpLocation()">
+                        <button class="btn btn-info" onclick="testIpLocation()">
+                            <i class="fas fa-map-marker-alt"></i> 测试
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 访问时间线图表 -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="glass-card">
+            <h5 class="mb-3"><i class="fas fa-chart-area me-2"></i>访问趋势图</h5>
+            <div style="position: relative; height: 300px;">
+                <canvas id="timelineChart"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<div class="row">
+    <!-- IP访问排行 -->
+    <div class="col-lg-7 mb-4">
+        <div class="glass-card">
+            <h5 class="mb-3"><i class="fas fa-list-ol me-2"></i>IP访问排行 TOP 50</h5>
+            <div class="table-responsive">
+                <table class="table table-hover table-dark">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>IP地址</th>
+                            <th>访问次数</th>
+                            <th>首次访问</th>
+                            <th>最后访问</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for ip in top_ips %}
+                        <tr>
+                            <td>{{ loop.index }}</td>
+                            <td><code>{{ ip.ip_address }}</code></td>
+                            <td>
+                                <span class="badge bg-primary">{{ ip.visit_count }}</span>
+                            </td>
+                            <td>{{ ip.first_visit }}</td>
+                            <td>{{ ip.last_visit }}</td>
+                            <td>
+                                <button class="btn btn-sm btn-danger" 
+                                        onclick="showBlockModal('{{ ip.ip_address }}')">
+                                    <i class="fas fa-ban"></i> 封禁
+                                </button>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="6" class="text-center">暂无数据</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- 已封禁IP列表 -->
+    <div class="col-lg-5 mb-4">
+        <div class="glass-card">
+            <h5 class="mb-3"><i class="fas fa-shield-alt me-2"></i>已封禁IP列表</h5>
+            <div class="table-responsive">
+                <table class="table table-hover table-dark">
+                    <thead>
+                        <tr>
+                            <th>IP地址</th>
+                            <th>封禁原因</th>
+                            <th>封禁时间</th>
+                            <th>过期时间</th>
+                            <th>状态</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for ip in blocked_ips %}
+                        <tr>
+                            <td><code>{{ ip.ip_address }}</code></td>
+                            <td>{{ ip.reason or '未说明' }}</td>
+                            <td>{{ ip.blocked_at }}</td>
+                            <td>{{ ip.expires_at or '永久' }}</td>
+                            <td>
+                                {% if ip.is_active %}
+                                <span class="badge bg-danger">生效中</span>
+                                {% else %}
+                                <span class="badge bg-secondary">已解封</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if ip.is_active %}
+                                <button class="btn btn-sm btn-success" 
+                                        onclick="unblockIp('{{ ip.ip_address }}')">
+                                    <i class="fas fa-unlock"></i> 解封
+                                </button>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="6" class="text-center">暂无封禁IP</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 封禁IP模态框 -->
+<div class="modal fade" id="blockIpModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content bg-dark text-white">
+            <div class="modal-header border-secondary">
+                <h5 class="modal-title"><i class="fas fa-ban me-2"></i>封禁IP</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="blockIpForm">
+                    <div class="mb-3">
+                        <label class="form-label">IP地址</label>
+                        <input type="text" class="form-control bg-secondary text-white" 
+                               id="blockIpAddress" name="ip_address" readonly>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">封禁原因</label>
+                        <textarea class="form-control bg-secondary text-white" 
+                                  id="blockReason" name="reason" rows="3" 
+                                  placeholder="请输入封禁原因（可选）"></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">封禁天数（留空表示永久）</label>
+                        <input type="number" class="form-control bg-secondary text-white" 
+                               id="blockExpireDays" name="expire_days" min="1" 
+                               placeholder="例如：7、30、365">
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer border-secondary">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-danger" onclick="submitBlockIp()">
+                    <i class="fas fa-ban me-1"></i>确认封禁
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ CDN_BASE_URL }}/Chart.js/4.4.1/chart.umd.min.js" defer></script>
+<script>
+// ========== 坐标转换（WGS-84 → GCJ-02 火星坐标系） ==========
+var pi = 3.1415926535897932384626;
+var a = 6378245.0;
+var ee = 0.00669342162296594323;
+
+function transformLat(x, y) {
+    var ret = -100.0 + 2.0 * x + 3.0 * y + 0.2 * y * y + 0.1 * x * y + 0.2 * Math.sqrt(Math.abs(x));
+    ret += (20.0 * Math.sin(6.0 * x * pi) + 20.0 * Math.sin(2.0 * x * pi)) * 2.0 / 3.0;
+    ret += (20.0 * Math.sin(y * pi) + 40.0 * Math.sin(y / 3.0 * pi)) * 2.0 / 3.0;
+    ret += (160.0 * Math.sin(y / 12.0 * pi) + 320.0 * Math.sin(y * pi / 30.0)) * 2.0 / 3.0;
+    return ret;
+}
+
+function transformLon(x, y) {
+    var ret = 300.0 + x + 2.0 * y + 0.1 * x * x + 0.1 * x * y + 0.1 * Math.sqrt(Math.abs(x));
+    ret += (20.0 * Math.sin(6.0 * x * pi) + 20.0 * Math.sin(2.0 * x * pi)) * 2.0 / 3.0;
+    ret += (20.0 * Math.sin(x * pi) + 40.0 * Math.sin(x / 3.0 * pi)) * 2.0 / 3.0;
+    ret += (150.0 * Math.sin(x / 12.0 * pi) + 300.0 * Math.sin(x / 30.0 * pi)) * 2.0 / 3.0;
+    return ret;
+}
+
+function wgs84ToGcj02(wgsLat, wgsLng) {
+    var dlat = transformLat(wgsLng - 105.0, wgsLat - 35.0);
+    var dlng = transformLon(wgsLng - 105.0, wgsLat - 35.0);
+    var radlat = wgsLat / 180.0 * pi;
+    var magic = Math.sin(radlat);
+    magic = 1 - ee * magic * magic;
+    var sqrtmagic = Math.sqrt(magic);
+    dlat = (dlat * 180.0) / ((a * (1 - ee)) / (magic * sqrtmagic) * pi);
+    dlng = (dlng * 180.0) / (a / sqrtmagic * Math.cos(radlat) * pi);
+    return { lat: wgsLat + dlat, lng: wgsLng + dlng };
+}
+// ========== 地图初始化 ==========
+let map = null;
+let markers = [];
+let mapInitialized = false;
+
+document.addEventListener('DOMContentLoaded', function() {
+    // 延迟初始化地图和图表，等待DOM完全渲染且外部库加载完毕
+    var attempts = 0;
+    function tryInit() {
+        attempts++;
+        if (typeof L !== 'undefined' && typeof Chart !== 'undefined') {
+            initMap();
+            initTrendChart();
+        } else if (attempts < 20) {
+            setTimeout(tryInit, 100);
+        } else {
+            console.error('Leaflet 或 Chart.js 加载超时');
+        }
+    }
+    // 非阻塞初始化，等待库加载完成
+    setTimeout(tryInit, 50);
+});
+
+function initMap() {
+    // 清除上次的地图实例
+    if (map) {
+        map.remove();
+        map = null;
+        markers = [];
+    }
+    
+    console.log('开始初始化地图...');
+    
+    if (typeof L === 'undefined') {
+        console.error('Leaflet 库加载失败！');
+        showMapError('地图库加载失败，请刷新页面重试');
+        return;
+    }
+    
+    var mapDiv = document.getElementById('ipMap');
+    if (!mapDiv) return;
+    
+    try {
+        // 清空容器
+        mapDiv.innerHTML = '';
+        
+        // 创建地图实例
+        map = L.map(mapDiv, {
+            center: [35.8617, 104.1954],
+            zoom: 4,
+            zoomControl: true
+        });
+        
+        // 多源瓦片加载，自动切换（高德→CartoDB→OSM）
+        var tileSources = [
+            {
+                name: '高德地图',
+                url: 'https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}',
+                opts: { maxZoom: 18, minZoom: 1, attribution: '© 高德地图', subdomains: ['1','2','3','4'] }
+            },
+            {
+                name: 'CartoDB',
+                url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+                opts: { maxZoom: 19, attribution: '© CartoDB', subdomains: 'abcd' }
+            },
+            {
+                name: 'OpenStreetMap',
+                url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                opts: { maxZoom: 19, attribution: '© OpenStreetMap', subdomains: 'abc' }
+            }
+        ];
+        
+        var tileIdx = 0;
+        var tileLayer;
+        var tileLoaded = false;
+        
+        function loadTileSource(index) {
+            if (index >= tileSources.length) {
+                console.warn('所有瓦片源均尝试失败');
+                return;
+            }
+            if (tileLayer) { map.removeLayer(tileLayer); tileLayer = null; }
+            
+            var src = tileSources[index];
+            console.log('尝试瓦片源[' + index + ']:', src.name);
+            
+            tileLoaded = false;
+            tileLayer = L.tileLayer(src.url, src.opts);
+            
+            // 任一瓦片加载成功即标记
+            tileLayer.on('load', function() {
+                tileLoaded = true;
+                console.log('✓ 瓦片加载成功:', src.name);
+            });
+            
+            tileLayer.addTo(map);
+            
+            // 5秒后检查是否加载成功，否则切换
+            setTimeout(function() {
+                if (!tileLoaded) {
+                    console.warn(src.name + ' 加载超时，切换到下一个');
+                    loadTileSource(index + 1);
+                }
+            }, 5000);
+        }
+        loadTileSource(0);
+        
+        console.log('地图初始化成功（高德底图）');
+        mapInitialized = true;
+        
+        // 强制刷新地图
+        setTimeout(function() {
+            map.invalidateSize();
+            loadIpMapData();
+        }, 500);
+    } catch (error) {
+        console.error('地图初始化错误:', error);
+        showMapError('地图初始化失败: ' + error.message);
+    }
+}
+
+function showMapError(msg) {
+    var el = document.getElementById('ipMap');
+    if (el) {
+        el.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#ff6b6b;"><i class="fas fa-exclamation-triangle fa-2x me-3"></i><div><h5>' + msg + '</h5></div></div>';
+    }
+}
+
+function loadIpMapData() {
+    var hours = {{ hours }};
+    console.log('加载IP地图数据, hours:', hours);
+    
+    fetch('/admin/api/ip_map_data?hours=' + hours)
+        .then(function(resp) { return resp.json(); })
+        .then(function(result) {
+            console.log('地图数据返回:', result);
+            if (result.success) {
+                displayIpMarkers(result.data);
+            } else {
+                showMapError(result.message || '获取数据失败');
+            }
+        })
+        .catch(function(err) {
+            console.error('请求失败:', err);
+            showMapError('网络请求失败');
+        });
+}
+
+function displayIpMarkers(ipData) {
+    if (!map) return;
+    
+    // 清除旧标记
+    markers.forEach(function(m) { map.removeLayer(m); });
+    markers = [];
+    
+    // 无数据
+    if (!ipData || ipData.length === 0) {
+        map.setView([35.8617, 104.1954], 4);
+        L.popup()
+            .setLatLng([35.8617, 104.1954])
+            .setContent('<div style="text-align:center;font-size:14px;">暂无IP地理位置数据<br><small>请点击「刷新IP位置」获取<br>(本地开发时内网IP无法定位公网位置)</small></div>')
+            .openOn(map);
+        return;
+    }
+    
+    // 添加标记
+    console.log('绘制标记数量:', ipData.length);
+    ipData.forEach(function(ip) {
+        // 跳过内网IP（不在地图上显示，避免位置错误）
+        if (ip.country === '内网' && ip.city === '本地网络') {
+            console.log('跳过内网IP:', ip.ip_address);
+            return;
+        }
+        if (ip.latitude !== null && ip.longitude !== null && parseFloat(ip.latitude) !== 0 && parseFloat(ip.longitude) !== 0) {
+            var wgsLat = parseFloat(ip.latitude);
+            var wgsLng = parseFloat(ip.longitude);
+            var gcj = wgs84ToGcj02(wgsLat, wgsLng);
+            
+            var color = getColorByCount(ip.visit_count);
+            var size = Math.min(36, Math.max(24, 12 + ip.visit_count / 2));
+            
+            // 自定义漂亮的定位图标
+            var icon = L.divIcon({
+                className: '',
+                html: '<div style="position:relative;width:' + size + 'px;height:' + size + 'px;">' +
+                      '<svg viewBox="0 0 24 36" width="' + size + '" height="' + (size * 1.4) + '">' +
+                      '<defs><linearGradient id="g' + ip.ip_address.replace(/\./g,'') + '" x1="0%" y1="0%" x2="0%" y2="100%">' +
+                      '<stop offset="0%" style="stop-color:' + color + ';stop-opacity:1" />' +
+                      '<stop offset="100%" style="stop-color:' + color + 'cc;stop-opacity:1" />' +
+                      '</linearGradient></defs>' +
+                      '<path d="M12 0C5.4 0 0 5.4 0 12c0 9 12 24 12 24s12-15 12-24C24 5.4 18.6 0 12 0z" fill="url(#g' + ip.ip_address.replace(/\./g,'') + ')" stroke="#fff" stroke-width="1.5"/>' +
+                      '<circle cx="12" cy="12" r="4" fill="#fff" opacity="0.9"/>' +
+                      '<text x="12" y="28" text-anchor="middle" fill="' + color + '" font-size="7" font-weight="bold">' + ip.visit_count + '</text>' +
+                      '</svg></div>',
+                iconSize: [size, size * 1.4],
+                iconAnchor: [size / 2, size * 1.4],
+                popupAnchor: [0, -size * 1.4]
+            });
+            
+            var marker = L.marker([gcj.lat, gcj.lng], { icon: icon }).addTo(map);
+            
+            marker.bindPopup(
+                '<div style="min-width:200px;">' +
+                '<h6 style="margin:0 0 8px 0;border-bottom:1px solid #ddd;padding-bottom:5px;">' +
+                '<i class="fas fa-network-wired"></i> ' + ip.ip_address + '</h6>' +
+                '<p style="margin:5px 0;"><strong>国家:</strong> ' + (ip.country || '未知') + '</p>' +
+                '<p style="margin:5px 0;"><strong>城市:</strong> ' + (ip.city || '未知') + '</p>' +
+                '<p style="margin:5px 0;"><strong>访问次数:</strong> <span style="background:#007bff;color:#fff;padding:2px 8px;border-radius:10px;">' + ip.visit_count + '</span></p>' +
+                '<p style="margin:5px 0;"><strong>最后访问:</strong><br><small>' + ip.last_visit + '</small></p>' +
+                '</div>'
+            );
+            markers.push(marker);
+        }
+    });
+    
+    if (markers.length > 0) {
+        var group = new L.featureGroup(markers);
+        map.fitBounds(group.getBounds().pad(0.1));
+    }
+}
+
+function getColorByCount(count) {
+    if (count > 100) return '#ea5545';   // 珊瑚红
+    if (count > 50) return '#f46d43';    // 橙红
+    if (count > 20) return '#fdae61';    // 橙黄
+    if (count > 10) return '#66c2a5';    // 青绿
+    return '#5e81f4';                    // 清蓝
+}
+
+// ========== 刷新IP位置 ==========
+function refreshIpLocations() {
+    if (!confirm('每次刷新将处理10个IP的位置信息，确定继续吗？')) {
+        return;
+    }
+    
+    var hours = {{ hours }};
+    var btn = event.target.closest('button');
+    var originalText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 获取中...';
+    
+    var fd = new FormData();
+    fd.append('hours', hours);
+    fd.append('limit', 10);
+    
+    fetch('/admin/api/refresh_ip_locations', {
+        method: 'POST',
+        body: fd
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.success) {
+            alert(data.message);
+            location.reload();
+        } else {
+            alert('失败: ' + data.message);
+        }
+    })
+    .catch(function(err) { alert('请求失败: ' + err); })
+    .finally(function() {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    });
+}
+
+// ========== 手动测试IP位置 ==========
+function testIpLocation() {
+    var ip = document.getElementById('testIpInput').value.trim();
+    if (!ip) { alert('请输入IP地址'); return; }
+    if (/^\d+\.\d+\.\d+\.\d+$/.test(ip) === false && /^[0-9a-fA-F:]+$/.test(ip) === false) {
+        alert('请输入正确的IP地址格式'); return;
+    }
+    
+    var btn = document.querySelector('#testIpInput + button');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 查询中...';
+    
+    var fd = new FormData();
+    fd.append('ip', ip);
+    
+    fetch('/admin/api/test_ip_location', { method: 'POST', body: fd })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (!data.success) {
+            alert(data.message || '查询失败');
+            return;
+        }
+        var loc = data.data;
+        var wgsLat = parseFloat(loc.latitude);
+        var wgsLng = parseFloat(loc.longitude);
+        var gcj = wgs84ToGcj02(wgsLat, wgsLng);
+        
+        // 跳转到该位置
+        map.setView([gcj.lat, gcj.lng], 10);
+        
+        // 添加测试标记（金色边框区分）
+        var testMarker = L.marker([gcj.lat, gcj.lng], {
+            icon: L.divIcon({
+                className: '',
+                html: '<div style="position:relative;width:36px;height:50px;">' +
+                      '<svg viewBox="0 0 24 36" width="36" height="50">' +
+                      '<path d="M12 0C5.4 0 0 5.4 0 12c0 9 12 24 12 24s12-15 12-24C24 5.4 18.6 0 12 0z" fill="#ff6600" stroke="#fff" stroke-width="2"/>' +
+                      '<circle cx="12" cy="12" r="4.5" fill="#fff"/>' +
+                      '<text x="12" y="28" text-anchor="middle" fill="#ff6600" font-size="8" font-weight="bold">测试</text>' +
+                      '</svg></div>',
+                iconSize: [36, 50],
+                iconAnchor: [18, 50],
+                popupAnchor: [0, -50]
+            })
+        }).addTo(map);
+        
+        testMarker.bindPopup(
+            '<div style="min-width:200px;border-left:4px solid #ff6600;padding:8px;">' +
+            '<h6 style="margin:0 0 8px 0;border-bottom:1px solid #ddd;padding-bottom:5px;"><i class="fas fa-search"></i> IP测试结果</h6>' +
+            '<p><strong>IP:</strong> ' + loc.ip_address + '</p>' +
+            '<p><strong>国家:</strong> ' + (loc.country || '未知') + '</p>' +
+            '<p><strong>城市:</strong> ' + (loc.city || '未知') + '</p>' +
+            '<p><strong>坐标:</strong> ' + wgsLat.toFixed(4) + ', ' + wgsLng.toFixed(4) + '</p>' +
+            '</div>'
+        ).openPopup();
+        markers.push(testMarker);
+    })
+    .catch(function(err) { alert('请求失败: ' + err); })
+    .finally(function() {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-map-marker-alt"></i> 测试';
+    });
+}
+
+// ========== 封禁/解封 ==========
+function showBlockModal(ipAddress) {
+    document.getElementById('blockIpAddress').value = ipAddress;
+    var modal = new bootstrap.Modal(document.getElementById('blockIpModal'));
+    modal.show();
+}
+
+function submitBlockIp() {
+    var fd = new FormData(document.getElementById('blockIpForm'));
+    fetch('/admin/block_ip', { method: 'POST', body: fd })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.success) { alert('封禁成功！'); location.reload(); }
+        else { alert('封禁失败：' + data.message); }
+    })
+    .catch(function(err) { alert('请求失败：' + err); });
+}
+
+function unblockIp(ipAddress) {
+    if (!confirm('确定要解封IP ' + ipAddress + ' 吗？')) return;
+    var fd = new FormData();
+    fd.append('ip_address', ipAddress);
+    fetch('/admin/unblock_ip', { method: 'POST', body: fd })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.success) { alert('解封成功！'); location.reload(); }
+        else { alert('解封失败：' + data.message); }
+    })
+    .catch(function(err) { alert('请求失败：' + err); });
+}
+
+// ========== 趋势图 ==========
+var trendChart = null;
+
+function initTrendChart() {
+    if (trendChart) { trendChart.destroy(); trendChart = null; }
+    
+    var canvas = document.getElementById('timelineChart');
+    if (!canvas) return;
+    
+    if (typeof Chart === 'undefined') {
+        console.error('Chart.js 未加载');
+        return;
+    }
+    
+    var timelineDataRaw = {{ timeline_data | tojson if timeline_data else '[]' }};
+    var timelineData = timelineDataRaw || [];
+    
+    console.log('趋势图数据:', timelineData);
+    
+    if (!timelineData || timelineData.length === 0) {
+        var parent = canvas.parentElement;
+        if (parent) {
+            parent.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:300px;color:rgba(255,255,255,0.5);"><i class="fas fa-chart-line fa-4x mb-3" style="opacity:0.5;"></i><h5>暂无访问趋势数据</h5><p>随着用户访问，趋势图将自动更新</p></div>';
+        }
+        return;
+    }
+    
+    var labels = timelineData.map(function(item) { 
+        // 修复可能的格式字符串（如果 time_slot 包含 % 说明是格式字符串）
+        var t = item.time_slot;
+        if (t && t.indexOf('%') >= 0) {
+            return '数据';
+        }
+        return t; 
+    });
+    var requestCounts = timelineData.map(function(item) { return item.request_count; });
+    var uniqueIps = timelineData.map(function(item) { return item.unique_ips; });
+    
+    trendChart = new Chart(canvas.getContext('2d'), {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: '访问次数',
+                data: requestCounts,
+                borderColor: '#4ecdc4',
+                backgroundColor: 'rgba(78, 205, 196, 0.15)',
+                tension: 0.4,
+                fill: true,
+                pointRadius: 4,
+                pointHoverRadius: 6
+            }, {
+                label: '独立IP数',
+                data: uniqueIps,
+                borderColor: '#ff6b9d',
+                backgroundColor: 'rgba(255, 107, 157, 0.15)',
+                tension: 0.4,
+                fill: true,
+                pointRadius: 4,
+                pointHoverRadius: 6
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: {
+                    labels: { color: 'rgba(255,255,255,0.8)', usePointStyle: true, padding: 15 }
+                },
+                tooltip: {
+                    backgroundColor: 'rgba(0,0,0,0.8)',
+                    titleColor: '#fff',
+                    bodyColor: '#fff'
+                }
+            },
+            scales: {
+                x: {
+                    ticks: { color: 'rgba(255,255,255,0.6)', maxRotation: 30 },
+                    grid: { color: 'rgba(255,255,255,0.05)' }
+                },
+                y: {
+                    beginAtZero: true,
+                    ticks: { color: 'rgba(255,255,255,0.6)' },
+                    grid: { color: 'rgba(255,255,255,0.05)' }
+                }
+            }
+        }
+    });
+}
+</script>
+{% endblock %}

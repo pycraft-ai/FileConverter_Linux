@@ -1,0 +1,41 @@
+# ⚠️ 敏感配置（包含真实密码/密钥，切勿提交）
+.env
+
+# 启动脚本（各环境自配）
+start.sh
+
+# Python 虚拟环境
+.venv/
+venv/
+env/
+
+# Python 缓存
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+
+# 运行时文件（用户上传和转换输出）
+uploads/
+outputs/
+
+# IDE/编辑器
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# 日志
+*.log
+output.log
+nohup.out
+
+# 临时文件
+*.tmp
+*.temp
