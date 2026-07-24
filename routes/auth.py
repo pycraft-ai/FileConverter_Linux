@@ -64,15 +64,17 @@ def api_send_verify_code():
         return jsonify({'success': False, 'message': '该邮箱验证码发送过于频繁，请稍后再试'})
 
     code = generate_verify_code()
+
+    # 先尝试发送，成功后再保存到 session
+    send_success = send_verify_code(email, code)
+    if not send_success:
+        return jsonify({'success': False, 'message': '邮件发送失败，请确认邮箱地址或稍后重试'})
+
+    # 发送成功后才将验证码存入 session
     session['verify_code'] = code
     session['verify_code_email'] = email
     session['verify_code_time'] = now
     session['verify_code_send_time'] = now
-
-    # 异步发送（失败不影响响应，由前端提示重试）
-    send_success = send_verify_code(email, code)
-    if not send_success:
-        return jsonify({'success': False, 'message': '邮件发送失败，请确认邮箱地址或稍后重试'})
 
     return jsonify({'success': True, 'message': '验证码已发送，请查收'})
 

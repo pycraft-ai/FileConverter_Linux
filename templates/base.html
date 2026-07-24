@@ -117,6 +117,14 @@
         return _originalFetch.call(this, url, options);
     };
 
+    // jQuery AJAX 全局 CSRF 注入（覆盖 $.post / $.ajax / $.getJSON 等 POST 请求）
+    $(document).ajaxSend(function(event, jqXHR, settings) {
+        var method = (settings.type || 'GET').toUpperCase();
+        if (['POST', 'PUT', 'DELETE', 'PATCH'].indexOf(method) >= 0) {
+            jqXHR.setRequestHeader('X-CSRF-Token', _csrfToken);
+        }
+    });
+
     // ===== HTML 转义函数（防止 XSS） =====
     function escapeHtml(text) {
         if (!text) return '';
