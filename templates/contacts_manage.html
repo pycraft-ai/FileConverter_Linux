@@ -118,6 +118,7 @@
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <form id="replyForm">
+                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                 <div class="modal-body">
                     <input type="hidden" id="replyMessageId" name="id">
                     <div class="mb-3">
@@ -159,26 +160,44 @@ function viewMessage(id) {
     var subject = cells[3].textContent.trim();
     var fullText = cells[4].querySelector('div').getAttribute('title') || cells[4].querySelector('div').textContent.trim();
     var time = cells[5].textContent.trim();
-    
-    document.getElementById('viewMessageBody').innerHTML = `
-        <div class="mb-3">
-            <div class="row">
-                <div class="col-md-6"><strong>姓名：</strong>${name}</div>
-                <div class="col-md-6"><strong>邮箱：</strong><a href="mailto:${email}" class="text-info">${email}</a></div>
-            </div>
-        </div>
-        <div class="mb-3">
-            <div class="row">
-                <div class="col-md-6"><strong>主题：</strong><span class="badge bg-info">${subject}</span></div>
-                <div class="col-md-6"><strong>时间：</strong>${time}</div>
-            </div>
-        </div>
-        <hr class="border-secondary">
-        <div class="mt-3">
-            <strong>详细内容：</strong>
-            <div class="mt-2 p-3" style="background:rgba(0,0,0,0.2);border-radius:8px;white-space:pre-wrap;">${fullText}</div>
-        </div>
-    `;
+
+    // 安全构建 DOM（避免 innerHTML XSS）
+    var body = document.getElementById('viewMessageBody');
+    body.textContent = '';  // 清空
+
+    var infoRow = document.createElement('div');
+    infoRow.className = 'mb-3';
+    infoRow.innerHTML = '<div class="row">' +
+        '<div class="col-md-6"><strong>姓名：</strong><span id="_vm_name"></span></div>' +
+        '<div class="col-md-6"><strong>邮箱：</strong><a id="_vm_email" class="text-info"></a></div>' +
+        '</div>';
+    body.appendChild(infoRow);
+    safeSetText('_vm_name', name);
+    var emailLink = document.getElementById('_vm_email');
+    emailLink.textContent = email;
+    emailLink.href = 'mailto:' + email;
+
+    var metaRow = document.createElement('div');
+    metaRow.className = 'mb-3';
+    metaRow.innerHTML = '<div class="row">' +
+        '<div class="col-md-6"><strong>主题：</strong><span id="_vm_subject" class="badge bg-info"></span></div>' +
+        '<div class="col-md-6"><strong>时间：</strong><span id="_vm_time"></span></div>' +
+        '</div>';
+    body.appendChild(metaRow);
+    safeSetText('_vm_subject', subject);
+    safeSetText('_vm_time', time);
+
+    body.appendChild(document.createElement('hr')).className = 'border-secondary';
+
+    var contentDiv = document.createElement('div');
+    contentDiv.className = 'mt-3';
+    contentDiv.innerHTML = '<strong>详细内容：</strong>';
+    var textDiv = document.createElement('div');
+    textDiv.className = 'mt-2 p-3';
+    textDiv.style.cssText = 'background:rgba(0,0,0,0.2);border-radius:8px;white-space:pre-wrap;';
+    textDiv.textContent = fullText;
+    contentDiv.appendChild(textDiv);
+    body.appendChild(contentDiv);
     
     // 标记行已读
     if (row.querySelector('.badge.bg-danger')) {

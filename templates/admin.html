@@ -102,6 +102,7 @@
             </div>
             <div class="modal-body">
                 <form id="renewForm">
+                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" id="renewUsername">
                     <div class="mb-3">
                         <label class="form-label">续期天数</label>
@@ -124,6 +125,7 @@
             </div>
             <div class="modal-body">
                 <form id="timesForm">
+                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" id="timesUsername">
                     <div class="mb-3">
                         <label class="form-label">增加次数</label>

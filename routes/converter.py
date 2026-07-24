@@ -10,6 +10,7 @@ from werkzeug.utils import secure_filename
 from config import Config
 from converter.converter_engine import Function
 from database.db_manager import DatabaseManager
+from utils import validate_file_content
 
 converter_bp = Blueprint('converter', __name__)
 
@@ -20,7 +21,6 @@ MODE_LIST = [
     '图片转ppt', 'pdf合并', 'md转pdf', 'excel转pdf', 'ppt转pdf', 'html转pdf'
 ]
 
-# 每种模式需要的输入类型
 MODE_INPUT_TYPE = {
     'word转pdf': 'file',
     'pdf转word': 'file',
@@ -38,7 +38,6 @@ MODE_INPUT_TYPE = {
     'html转pdf': 'file',
 }
 
-# 输入文件扩展名映射
 MODE_EXTENSIONS = {
     'word转pdf': '.docx',
     'pdf转word': '.pdf',
@@ -56,7 +55,6 @@ MODE_EXTENSIONS = {
     'html转pdf': '.html,.htm',
 }
 
-# 输出文件扩展名映射
 MODE_OUTPUT_EXT = {
     'word转pdf': '.pdf',
     'pdf转word': '.docx',
@@ -74,8 +72,6 @@ MODE_OUTPUT_EXT = {
     'html转pdf': '.pdf',
 }
 
-
-# 模式名到函数名的映射
 MODE_TO_FUNCTION = {
     'word转pdf': 'word_to_pdf',
     'pdf转word': 'pdf_to_word',
@@ -93,6 +89,75 @@ MODE_TO_FUNCTION = {
     'html转pdf': 'html_to_pdf',
 }
 
+# 各模式最大文件数
+MODE_MAX_FILES = {
+    'pdf合并': 50,
+    '图片转pdf': 100,
+    '图片转ppt': 100,
+}
+
+
+# ============================================================
+# 统一上传校验
+# ============================================================
+
+def _validate_uploaded_file(file, mode: str) -> str | None:
+    """
+    统一校验上传文件：扩展名 + 大小 + 双重扩展名检测。
+    Returns: 错误消息字符串，None 表示通过。
+    """
+    # 类型校验
+    if not file or file.filename == '':
+        return '请选择有效的文件'
+
+    if not allowed_file(file.filename, mode):
+        return f'不支持的文件格式，请上传 {MODE_EXTENSIONS.get(mode)} 格式的文件'
+
+    # 双重扩展名攻击检测（如 file.pdf.exe）
+    name_without_ext, dot, ext = file.filename.rpartition('.')
+    if '.' in name_without_ext:
+        inner_ext = name_without_ext.rsplit('.', 1)[1].lower()
+        allowed_exts = {'docx', 'pdf', 'jpg', 'jpeg', 'png', 'bmp', 'gif', 'tiff',
+                        'csv', 'xlsx', 'xls', 'pptx', 'ppt', 'txt', 'md', 'html', 'htm'}
+        if inner_ext in allowed_exts and inner_ext != ext.lower():
+            return '检测到文件扩展名伪装，已拒绝'
+
+    # 大小校验
+    try:
+        file.seek(0, 2)
+        file_size = file.tell()
+        file.seek(0)
+    except Exception:
+        return '无法读取文件大小'
+
+    if file_size > Config.UPLOAD_MAX_SIZE * 1024 * 1024:
+        return f'文件 "{file.filename}" 大小超过限制（最大 {Config.UPLOAD_MAX_SIZE}MB）'
+
+    return None
+
+
+def _validate_saved_file(filepath: str, filename: str, mode: str) -> str | None:
+    """
+    文件保存后的内容校验：幻数 + 恶意内容扫描。
+    Returns: 错误消息字符串，None 表示通过。
+    """
+    if '.' not in filename:
+        return '文件缺少扩展名'
+
+    ext = filename.rsplit('.', 1)[1].lower()
+
+    # 内容验证
+    is_valid, err_msg = validate_file_content(filepath, ext)
+    if not is_valid:
+        # 删除恶意文件
+        try:
+            os.remove(filepath)
+        except Exception:
+            pass
+        return f'文件安全校验失败：{err_msg}'
+
+    return None
+
 
 def allowed_file(filename, mode):
     """检查文件扩展名是否允许"""
@@ -101,20 +166,14 @@ def allowed_file(filename, mode):
     ext = filename.rsplit('.', 1)[1].lower()
     allowed_exts = MODE_EXTENSIONS.get(mode)
     if allowed_exts is None:
-        # directory 模式允许图片格式
         return ext in ['jpg', 'jpeg', 'png', 'bmp', 'gif', 'tiff']
-    
-    # 处理多个扩展名的情况，去掉点号后比较
     allowed_list = [e.strip().lstrip('.') for e in allowed_exts.split(',')]
     return ext in allowed_list
 
 
-def login_required():
-    """检查用户是否登录"""
-    if 'username' not in session:
-        flash('请先登录', 'error')
-        return redirect(url_for('auth.login'))
-
+# ============================================================
+# 路由
+# ============================================================
 
 @converter_bp.route('/')
 def index():
@@ -126,13 +185,11 @@ def index():
         session.clear()
         return redirect(url_for('auth.login'))
 
-    # 检查是否被封禁，封禁则踢出登录
     if user.get('is_block'):
         session.clear()
         flash('您的账户已被封禁', 'error')
         return redirect(url_for('auth.login'))
 
-    # 避免重复数据库调用：先获取结果再判断
     ann_success, announcements = DatabaseManager.get_active_announcements(5)
     if not ann_success:
         announcements = []
@@ -155,7 +212,6 @@ def convert():
     if mode not in MODE_LIST:
         return jsonify({'success': False, 'message': '无效的转换模式'})
 
-    # 验证用户权限
     user = DatabaseManager.get_user_by_username(session['username'])
     if not user:
         return jsonify({'success': False, 'message': '用户不存在'})
@@ -164,50 +220,45 @@ def convert():
 
     login_type = session.get('login_type', 'times')
     if login_type == 'time':
-        from datetime import datetime
         if datetime.now() > user['expiration_date']:
             return jsonify({'success': False, 'message': '账户已过期'})
     elif login_type == 'times':
         if user['remaining_times'] <= 0:
             return jsonify({'success': False, 'message': '剩余次数不足'})
 
-    # 生成唯一的任务ID
     task_id = uuid.uuid4().hex
     input_type = MODE_INPUT_TYPE.get(mode, 'file')
 
     try:
-        # 处理文件上传
         input_paths = []
+        max_files = MODE_MAX_FILES.get(mode, 10)
 
         if input_type == 'file':
-            # 支持批量上传多个文件
             files = request.files.getlist('file')
             if not files or len(files) == 0:
                 return jsonify({'success': False, 'message': '请选择文件'})
-            
+
+            if len(files) > max_files:
+                return jsonify({'success': False, 'message': f'最多同时上传 {max_files} 个文件'})
+
             for i, file in enumerate(files):
-                if not file or file.filename == '':
-                    continue
-                    
-                # 验证文件类型
-                if not allowed_file(file.filename, mode):
-                    return jsonify({'success': False, 'message': f'不支持的文件格式，请上传 {MODE_EXTENSIONS.get(mode)} 格式的文件'})
-                
-                # 检查文件大小（最大 50MB）
-                file.seek(0, 2)
-                file_size = file.tell()
-                file.seek(0)
-                if file_size > Config.UPLOAD_MAX_SIZE * 1024 * 1024:
-                    return jsonify({'success': False, 'message': f'文件 "{file.filename}" 大小超过限制（最大 {Config.UPLOAD_MAX_SIZE}MB）'})
-                
-                # 处理文件名
+                err = _validate_uploaded_file(file, mode)
+                if err:
+                    return jsonify({'success': False, 'message': err})
+
                 original_filename = file.filename
                 ext = os.path.splitext(original_filename)[1] if '.' in original_filename else ''
                 filename = f'{task_id}_{i}{ext}'
                 save_path = os.path.join(Config.UPLOAD_FOLDER, filename)
                 file.save(save_path)
+
+                # 文件保存后内容安全校验
+                err = _validate_saved_file(save_path, original_filename, mode)
+                if err:
+                    return jsonify({'success': False, 'message': err})
+
                 input_paths.append(save_path)
-            
+
             if len(input_paths) == 0:
                 return jsonify({'success': False, 'message': '没有有效的文件'})
 
@@ -215,71 +266,103 @@ def convert():
             files = request.files.getlist('files')
             if not files or len(files) == 0:
                 return jsonify({'success': False, 'message': '请选择文件'})
+
+            pdf_max = MODE_MAX_FILES.get(mode, 50)
+            if len(files) > pdf_max:
+                return jsonify({'success': False, 'message': f'最多合并 {pdf_max} 个文件'})
+
             for i, file in enumerate(files):
-                if file and file.filename != '':
-                    # 验证文件类型
-                    if not allowed_file(file.filename, mode):
-                        return jsonify({'success': False, 'message': f'文件 "{file.filename}" 格式不支持'})
-                    
-                    original_filename = file.filename
-                    ext = os.path.splitext(original_filename)[1] if '.' in original_filename else ''
-                    filename = f'{task_id}_{i}{ext}'
-                    save_path = os.path.join(Config.UPLOAD_FOLDER, filename)
-                    file.save(save_path)
-                    input_paths.append(save_path)
+                err = _validate_uploaded_file(file, mode)
+                if err:
+                    return jsonify({'success': False, 'message': err})
+
+                original_filename = file.filename
+                ext = os.path.splitext(original_filename)[1] if '.' in original_filename else ''
+                filename = f'{task_id}_{i}{ext}'
+                save_path = os.path.join(Config.UPLOAD_FOLDER, filename)
+                file.save(save_path)
+
+                # 文件保存后内容安全校验
+                err = _validate_saved_file(save_path, original_filename, mode)
+                if err:
+                    return jsonify({'success': False, 'message': err})
+
+                input_paths.append(save_path)
 
         elif input_type == 'directory':
             files = request.files.getlist('files')
             if not files or len(files) == 0:
                 return jsonify({'success': False, 'message': '请选择文件'})
+
+            img_max = MODE_MAX_FILES.get(mode, 100)
+            if len(files) > img_max:
+                return jsonify({'success': False, 'message': f'最多上传 {img_max} 张图片'})
+
             dir_path = os.path.join(Config.UPLOAD_FOLDER, task_id)
             os.makedirs(dir_path, exist_ok=True)
             file_count = 0
             for i, file in enumerate(files):
                 if file and file.filename != '':
-                    # 验证文件类型（只允许图片）
                     if not allowed_file(file.filename, mode):
                         continue
+                    # 统一大小检查
+                    try:
+                        file.seek(0, 2)
+                        file_size = file.tell()
+                        file.seek(0)
+                        if file_size > Config.UPLOAD_MAX_SIZE * 1024 * 1024:
+                            continue  # 跳过大文件
+                    except Exception:
+                        continue
+
                     original_filename = file.filename
                     ext = os.path.splitext(original_filename)[1] if '.' in original_filename else ''
                     filename = f'{i}{ext}'
                     save_full_path = os.path.join(dir_path, filename)
                     file.save(save_full_path)
+
+                    # 文件保存后内容安全校验
+                    err = _validate_saved_file(save_full_path, original_filename, mode)
+                    if err:
+                        try:
+                            os.remove(save_full_path)
+                        except Exception:
+                            pass
+                        continue  # 跳过恶意文件
+
                     file_count += 1
+
             if file_count == 0:
                 return jsonify({'success': False, 'message': '没有有效的图片文件'})
             input_paths = [dir_path]
 
-        # 确定输出路径
-        result_message = '转换成功'  # 默认消息，批量模式会覆盖
+        # ---- 执行转换 ----
+        result_message = '转换成功'
+
         if mode == 'pdf合并':
             output_path = os.path.join(
                 Config.OUTPUT_FOLDER, f'{task_id}_merged.pdf'
             )
             result = Function.merge_pdf(input_paths, output_path)
         elif mode == 'pdf转图片':
-            # PDF 转图片会生成多张图片，使用目录
             output_dir = os.path.join(Config.OUTPUT_FOLDER, f'{task_id}_images')
             os.makedirs(output_dir, exist_ok=True)
             result = Function.pdf_to_image(input_paths[0], output_dir)
             if result:
-                # 检查是否有生成的图片
                 image_files = [f for f in os.listdir(output_dir) if f.endswith('.jpg')]
                 if not image_files:
                     return jsonify({'success': False, 'message': 'PDF转换失败，未生成图片'})
-                
-                # 将图片打包成 zip
+
                 zip_path = os.path.join(Config.OUTPUT_FOLDER, f'{task_id}_images.zip')
                 try:
                     with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
                         for img_file in image_files:
                             zipf.write(os.path.join(output_dir, img_file), img_file)
-                    # 验证 ZIP 文件是否创建成功
                     if not os.path.exists(zip_path) or os.path.getsize(zip_path) == 0:
-                        return jsonify({'success': False, 'message': 'ZIP打包失败'})
+                        return jsonify({'success': False, 'message': '文件打包失败，请重试'})
                     output_path = zip_path
-                except Exception as zip_err:
-                    return jsonify({'success': False, 'message': f'ZIP打包失败: {str(zip_err)}'})
+                except Exception:
+                    return jsonify({'success': False, 'message': '文件打包失败，请重试'})
         elif input_type == 'directory':
             output_path = os.path.join(
                 Config.OUTPUT_FOLDER,
@@ -289,16 +372,14 @@ def convert():
                 input_paths[0], output_path
             )
         else:
-            # 单文件模式（支持批量：逐个转换后打包下载）
             func_name = MODE_TO_FUNCTION.get(mode)
             if not func_name:
                 return jsonify({'success': False, 'message': '无效的转换模式'})
 
-            output_paths = []  # 收集 (输出路径, 原始文件名) 元组
+            output_paths = []
             failed_files = []
 
             for i, input_path in enumerate(input_paths):
-                # 生成独立输出路径
                 base_name = os.path.basename(input_path)
                 output_path = os.path.join(Config.OUTPUT_FOLDER, f'{task_id}_{i}_{base_name}')
                 ext = MODE_OUTPUT_EXT.get(mode, '')
@@ -320,7 +401,6 @@ def convert():
                 result = False
             else:
                 result = True
-                # 单文件直接下载，多文件打包 zip
                 if len(output_paths) == 1:
                     output_path = output_paths[0]
                 else:
@@ -331,10 +411,9 @@ def convert():
                             for out_path in output_paths:
                                 zipf.write(out_path, os.path.basename(out_path))
                         output_path = zip_path
-                    except Exception as zip_err:
-                        return jsonify({'success': False, 'message': f'打包失败: {str(zip_err)}'})
+                    except Exception:
+                        return jsonify({'success': False, 'message': '文件打包失败，请重试'})
 
-                # 如果有部分失败，在 message 中提示
                 if failed_files:
                     result_message = f'成功 {len(output_paths)} 个，失败: {", ".join(failed_files)}'
                 else:
@@ -346,8 +425,7 @@ def convert():
             DatabaseManager.log_conversion(
                 session['username'], mode, filename_list, True, '转换成功'
             )
-            
-            # 扣除使用次数（并检查返回值）
+
             remaining_times = None
             if login_type == 'times':
                 success, msg = DatabaseManager.decrease_user_times(
@@ -356,17 +434,14 @@ def convert():
                 if not success:
                     print(f"扣减次数失败: {msg}")
                 else:
-                    # 从返回消息中提取最新的剩余次数
                     match = re.search(r'当前剩余 (\d+) 次', msg)
                     if match:
                         remaining_times = int(match.group(1))
-            
-            # 重新获取用户信息以确保数据一致性
+
             updated_user = DatabaseManager.get_user_by_username(session['username'])
             if updated_user:
                 current_remaining = updated_user.get('remaining_times', 0)
                 session['remaining_times'] = current_remaining
-                # 如果没有从扣减消息中获取到，使用数据库的值
                 if remaining_times is None:
                     remaining_times = current_remaining
             else:
@@ -381,7 +456,6 @@ def convert():
                 'remaining_times': remaining_times
             })
         else:
-            # 记录失败日志
             filename_list = ', '.join([os.path.basename(p) for p in input_paths])
             DatabaseManager.log_conversion(
                 session['username'], mode, filename_list, False, '转换失败'
@@ -389,12 +463,14 @@ def convert():
             return jsonify({'success': False, 'message': '转换失败，请检查文件格式或联系管理员'})
 
     except Exception as e:
-        # 记录异常日志
-        mode = request.form.get('mode', '未知')
+        # 记录异常日志（详细信息写入服务端日志，前端只返回通用错误）
+        mode_safe = request.form.get('mode', '未知')
+        print(f"[Convert Error] user={session.get('username')} mode={mode_safe} err={e}")
         DatabaseManager.log_conversion(
-            session.get('username', '未知'), mode, '', False, f'系统异常: {str(e)}'
+            session.get('username', '未知'), mode_safe, '', False,
+            f'系统异常: {type(e).__name__}'  # 只记录异常类型，不记录详细信息
         )
-        return jsonify({'success': False, 'message': f'转换出错: {str(e)}'})
+        return jsonify({'success': False, 'message': '服务器处理出错，请稍后重试或联系管理员'})
 
 
 @converter_bp.route('/download/<filename>')
@@ -421,16 +497,16 @@ def contact():
     """联系作者页面"""
     if 'username' not in session:
         return redirect(url_for('auth.login'))
-    
+
     username = session['username']
-    
+
     if request.method == 'POST':
         subject = request.form.get('subject', '').strip()
         message = request.form.get('message', '').strip()
-        
+
         if not subject or not message:
             return jsonify({'success': False, 'message': '请填写主题和内容'})
-        
+
         success, msg = DatabaseManager.submit_contact_message(
             subject=subject,
             message=message,
@@ -439,16 +515,14 @@ def contact():
             email=''
         )
         return jsonify({'success': success, 'message': msg})
-    
-    # 标记本次访问时间（用于未读回复提醒）
+
     session['contact_visit_time'] = datetime.now().isoformat()
-    
-    # 获取当前用户的历史消息
+
     success, my_messages, total = DatabaseManager.get_messages_by_username(username)
     if not success:
         my_messages = []
         total = 0
-    
+
     return render_template('contact.html', my_messages=my_messages, total=total)
 
 
@@ -457,9 +531,9 @@ def user_unread_replies():
     """获取用户未读回复数"""
     if 'username' not in session:
         return jsonify({'count': 0})
-    
+
     username = session['username']
     visit_time = session.get('contact_visit_time')
-    
+
     count = DatabaseManager.get_unread_reply_count(username, visit_time)
     return jsonify({'count': count})

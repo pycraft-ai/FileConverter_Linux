@@ -237,6 +237,7 @@
             </div>
             <div class="modal-body">
                 <form id="blockIpForm">
+                        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                     <div class="mb-3">
                         <label class="form-label">IP地址</label>
                         <input type="text" class="form-control bg-secondary text-white" 
@@ -426,7 +427,18 @@ function initMap() {
 function showMapError(msg) {
     var el = document.getElementById('ipMap');
     if (el) {
-        el.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#ff6b6b;"><i class="fas fa-exclamation-triangle fa-2x me-3"></i><div><h5>' + msg + '</h5></div></div>';
+        el.textContent = '';
+        var container = document.createElement('div');
+        container.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;color:#ff6b6b;';
+        var icon = document.createElement('i');
+        icon.className = 'fas fa-exclamation-triangle fa-2x me-3';
+        container.appendChild(icon);
+        var textDiv = document.createElement('div');
+        var h5 = document.createElement('h5');
+        h5.textContent = msg;
+        textDiv.appendChild(h5);
+        container.appendChild(textDiv);
+        el.appendChild(container);
     }
 }
 
@@ -684,7 +696,20 @@ function initTrendChart() {
     if (!timelineData || timelineData.length === 0) {
         var parent = canvas.parentElement;
         if (parent) {
-            parent.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:300px;color:rgba(255,255,255,0.5);"><i class="fas fa-chart-line fa-4x mb-3" style="opacity:0.5;"></i><h5>暂无访问趋势数据</h5><p>随着用户访问，趋势图将自动更新</p></div>';
+            parent.textContent = '';
+            var emptyDiv = document.createElement('div');
+            emptyDiv.style.cssText = 'display:flex;flex-direction:column;align-items:center;justify-content:center;height:300px;color:rgba(255,255,255,0.5);';
+            var emptyIcon = document.createElement('i');
+            emptyIcon.className = 'fas fa-chart-line fa-4x mb-3';
+            emptyIcon.style.opacity = '0.5';
+            var emptyH5 = document.createElement('h5');
+            emptyH5.textContent = '暂无访问趋势数据';
+            var emptyP = document.createElement('p');
+            emptyP.textContent = '随着用户访问，趋势图将自动更新';
+            emptyDiv.appendChild(emptyIcon);
+            emptyDiv.appendChild(emptyH5);
+            emptyDiv.appendChild(emptyP);
+            parent.appendChild(emptyDiv);
         }
         return;
     }

@@ -1,4 +1,5 @@
 import os
+import secrets
 from dotenv import load_dotenv
 
 # 加载 .env 文件（如果存在）
@@ -6,8 +7,8 @@ load_dotenv()
 
 
 class Config:
-    # Flask 密钥，用于 session
-    SECRET_KEY = os.environ.get('SECRET_KEY')
+    # Flask 密钥，用于 session（未设置时自动生成随机密钥，重启后 session 失效）
+    SECRET_KEY = os.environ.get('SECRET_KEY') or secrets.token_hex(32)
 
     # 上传文件配置
     UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')
@@ -32,9 +33,12 @@ class Config:
         'use_pure': True
     }
 
+    # ---- 管理员账号 ----
+    # 生产环境必须通过 .env 设置强密码，不再提供弱默认值
     ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME', 'admin')
-    ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', '123456')
+    ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD')        # 不再有默认值！
     ADMIN_EMAIL = os.environ.get('ADMIN_EMAIL', 'admin@example.com')
+
     # 连接池配置
     DB_POOL_SIZE = int(os.environ.get('DB_POOL_SIZE', 10))
     FILE_CLEANUP_TTL = 1 * 24 * 3600  # 文件清理TTL（秒），默认1天
@@ -43,7 +47,7 @@ class Config:
     VERIFY_CODE_RESEND_INTERVAL = int(os.environ.get('VERIFY_CODE_RESEND_INTERVAL', 60))
     VERIFY_CODE_EXPIRE = int(os.environ.get('VERIFY_CODE_EXPIRE', 300))
 
-    # CDN 静态资源地址（CDN 不稳定时请切换备用的静态文件 CDN）
+    # CDN 静态资源地址
     CDN_BASE_URL = os.environ.get('CDN_BASE_URL', 'https://cdn.staticfile.org')
 
     # IP 分析配置
@@ -52,12 +56,33 @@ class Config:
     IP_LOCATION_API_TIMEOUT = int(os.environ.get('IP_LOCATION_API_TIMEOUT', 5))
     IP_LOCATION_REQUEST_INTERVAL = float(os.environ.get('IP_LOCATION_REQUEST_INTERVAL', 0.5))
 
+    # ===== 安全配置 =====
+
+    # -- CSRF --
+    CSRF_ENABLED = os.environ.get('CSRF_ENABLED', '1') == '1'
+
+    # -- 限流 --
+    # 登录失败限制：同一 IP 或用户名在窗口期内最多尝试 N 次
+    LOGIN_RATE_LIMIT = int(os.environ.get('LOGIN_RATE_LIMIT', 10))
+    LOGIN_RATE_WINDOW = int(os.environ.get('LOGIN_RATE_WINDOW', 300))
+    # 验证码发送限制：同一 IP 每小时最多 N 次
+    VERIFY_CODE_IP_LIMIT = int(os.environ.get('VERIFY_CODE_IP_LIMIT', 5))
+    VERIFY_CODE_IP_WINDOW = int(os.environ.get('VERIFY_CODE_IP_WINDOW', 3600))
+
+    # -- 密码策略 --
+    PASSWORD_MIN_LENGTH = int(os.environ.get('PASSWORD_MIN_LENGTH', 8))
+
+    # -- 代理信任 --
+    # 只有来自这些 IP 的请求才信任 X-Forwarded-For / CF-Connecting-IP 头
+    TRUSTED_PROXY_IPS = [
+        ip.strip() for ip in os.environ.get('TRUSTED_PROXY_IPS', '127.0.0.1,::1').split(',')
+    ]
+
     # ===== 邮箱 SMTP 配置（用于注册验证码） =====
-    # 以 QQ 邮箱为例：登录 mail.qq.com → 设置 → 账户 → 开启 SMTP 服务 → 获取授权码
     MAIL_HOST = os.environ.get('MAIL_HOST')
     MAIL_PORT = int(os.environ.get('MAIL_PORT', 465))
-    MAIL_USER = os.environ.get('MAIL_USER')       # 你的 QQ 邮箱
-    MAIL_PASSWORD = os.environ.get('MAIL_PASSWORD')  # QQ 邮箱授权码（非登录密码）
+    MAIL_USER = os.environ.get('MAIL_USER')
+    MAIL_PASSWORD = os.environ.get('MAIL_PASSWORD')
     MAIL_USE_SSL = True
 
     # 确保上传和输出目录存在

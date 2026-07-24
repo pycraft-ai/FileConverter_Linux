@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>{% block title %}文件转化工具{% endblock %}</title>
     <!-- 预连接国内 CDN -->
     <link rel="preconnect" href="{{ CDN_BASE_URL }}" crossorigin>
@@ -98,6 +99,38 @@
     <script src="{{ CDN_BASE_URL }}/twitter-bootstrap/5.3.2/js/bootstrap.bundle.min.js" defer></script>
 
     <script>
+    // ===== CSRF 防护：所有 AJAX POST 请求自动附带 CSRF token =====
+    var _csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+    // 拦截全局 fetch，自动为 POST/PUT/DELETE 请求添加 CSRF header
+    var _originalFetch = window.fetch;
+    window.fetch = function(url, options) {
+        options = options || {};
+        var method = (options.method || 'GET').toUpperCase();
+        if (['POST', 'PUT', 'DELETE', 'PATCH'].indexOf(method) >= 0) {
+            options.headers = options.headers || {};
+            // 如果 FormData body，不能设置 Content-Type，只加 CSRF header
+            if (!(options.body instanceof FormData)) {
+                options.headers['Content-Type'] = options.headers['Content-Type'] || 'application/x-www-form-urlencoded';
+            }
+            options.headers['X-CSRF-Token'] = _csrfToken;
+        }
+        return _originalFetch.call(this, url, options);
+    };
+
+    // ===== HTML 转义函数（防止 XSS） =====
+    function escapeHtml(text) {
+        if (!text) return '';
+        var div = document.createElement('div');
+        div.appendChild(document.createTextNode(text));
+        return div.innerHTML;
+    }
+
+    // ===== 安全设置元素文本内容 =====
+    function safeSetText(el, text) {
+        if (typeof el === 'string') el = document.getElementById(el);
+        if (el) el.textContent = text;
+    }
+
     // Flash 消息 3 秒后自动消失
     $('#flashArea .alert').each(function() {
         var $el = $(this);

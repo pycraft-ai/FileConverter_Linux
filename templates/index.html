@@ -242,6 +242,7 @@
         </div>
 
         <form id="convertForm" enctype="multipart/form-data">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
             <input class="file-input-hidden" type="file" id="fileInput" name="file" accept="*/*" multiple>
             <div id="filesInputArea" style="display:none;">
                 <input class="file-input-hidden" type="file" id="filesInput" name="files" multiple>

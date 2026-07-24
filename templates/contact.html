@@ -14,6 +14,7 @@
             </p>
 
             <form id="contactForm">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                 <div class="mb-3">
                     <label class="form-label"><i class="fas fa-tag me-1"></i>主题 <span class="text-danger">*</span></label>
                     <select class="form-select bg-dark text-white border-secondary" id="contactSubject" name="subject" required>
@@ -93,11 +94,15 @@ document.getElementById('contactForm').addEventListener('submit', function(e) {
     var resultDiv = document.getElementById('resultMessage');
     
     btn.disabled = true;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>发送中...';
+    btn.textContent = '';
+    var spinnerIcon = document.createElement('i');
+    spinnerIcon.className = 'fas fa-spinner fa-spin me-2';
+    btn.appendChild(spinnerIcon);
+    btn.appendChild(document.createTextNode('发送中...'));
     resultDiv.style.display = 'none';
-    
+
     var fd = new FormData(this);
-    
+
     fetch('{{ url_for("converter.contact") }}', {
         method: 'POST',
         body: fd
@@ -105,25 +110,39 @@ document.getElementById('contactForm').addEventListener('submit', function(e) {
     .then(function(r) { return r.json(); })
     .then(function(data) {
         resultDiv.style.display = 'block';
+        // 安全显示消息：使用 textContent 而非 innerHTML
+        var icon = document.createElement('i');
         if (data.success) {
             resultDiv.className = 'mt-3 alert alert-success';
-            resultDiv.innerHTML = '<i class="fas fa-check-circle me-2"></i>' + data.message;
-            document.getElementById('contactForm').reset();
-            // 刷新页面以显示新消息
-            setTimeout(function() { location.reload(); }, 1000);
+            icon.className = 'fas fa-check-circle me-2';
         } else {
             resultDiv.className = 'mt-3 alert alert-danger';
-            resultDiv.innerHTML = '<i class="fas fa-exclamation-circle me-2"></i>' + data.message;
+            icon.className = 'fas fa-exclamation-circle me-2';
+        }
+        resultDiv.textContent = '';
+        resultDiv.appendChild(icon);
+        resultDiv.appendChild(document.createTextNode(data.message));
+        if (data.success) {
+            document.getElementById('contactForm').reset();
+            setTimeout(function() { location.reload(); }, 1000);
         }
     })
     .catch(function(err) {
         resultDiv.style.display = 'block';
         resultDiv.className = 'mt-3 alert alert-danger';
-        resultDiv.innerHTML = '<i class="fas fa-exclamation-circle me-2"></i>发送失败，请稍后重试';
+        resultDiv.textContent = '';
+        var errIcon = document.createElement('i');
+        errIcon.className = 'fas fa-exclamation-circle me-2';
+        resultDiv.appendChild(errIcon);
+        resultDiv.appendChild(document.createTextNode('发送失败，请稍后重试'));
     })
     .finally(function() {
         btn.disabled = false;
-        btn.innerHTML = '<i class="fas fa-paper-plane me-2"></i>发送消息';
+        btn.textContent = '';
+        var planeIcon = document.createElement('i');
+        planeIcon.className = 'fas fa-paper-plane me-2';
+        btn.appendChild(planeIcon);
+        btn.appendChild(document.createTextNode('发送消息'));
     });
 });
 </script>

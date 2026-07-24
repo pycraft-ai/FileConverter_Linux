@@ -39,3 +39,5 @@ nohup.out
 # 临时文件
 *.tmp
 *.temp
+
+GITHUB_RISK_REVIEW.md
