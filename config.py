@@ -2,8 +2,9 @@ import os
 import secrets
 from dotenv import load_dotenv
 
-# 加载 .env 文件（如果存在）
-load_dotenv()
+# 加载 .env 文件（如果存在），使用绝对路径避免目录问题
+_env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
+load_dotenv(_env_path)
 
 
 class Config:
@@ -41,7 +42,7 @@ class Config:
 
     # 连接池配置
     DB_POOL_SIZE = int(os.environ.get('DB_POOL_SIZE', 10))
-    FILE_CLEANUP_TTL = 1 * 24 * 3600  # 文件清理TTL（秒），默认1天
+    FILE_CLEANUP_TTL = 7 * 24 * 3600  # 文件清理TTL（秒），改为7天以支持历史记录下载
 
     # 验证码配置
     VERIFY_CODE_RESEND_INTERVAL = int(os.environ.get('VERIFY_CODE_RESEND_INTERVAL', 60))

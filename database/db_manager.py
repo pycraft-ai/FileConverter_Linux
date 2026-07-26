@@ -260,7 +260,8 @@ class DatabaseManager:
                     """)
                 else:
                     for stmt in [
-                        "ALTER TABLE conversion_logs ADD INDEX idx_user_time (username, operation_time)"
+                        "ALTER TABLE conversion_logs ADD INDEX idx_user_time (username, operation_time)",
+                        "ALTER TABLE conversion_logs ADD COLUMN output_path VARCHAR(500) DEFAULT '' AFTER message"
                     ]:
                         try: cursor.execute(stmt)
                         except Error: pass
@@ -850,7 +851,7 @@ class DatabaseManager:
     # ========================
 
     @staticmethod
-    def log_conversion(username, mode, filename, success, message=""):
+    def log_conversion(username, mode, filename, success, message="", output_path=""):
         """记录转换操作日志"""
         conn = None
         try:
@@ -859,9 +860,9 @@ class DatabaseManager:
                 cursor = conn.cursor()
                 cursor.execute(
                     """INSERT INTO conversion_logs
-                    (username, mode, filename, success, message)
-                    VALUES (%s, %s, %s, %s, %s)""",
-                    (username, mode, filename, success, message)
+                    (username, mode, filename, success, message, output_path)
+                    VALUES (%s, %s, %s, %s, %s, %s)""",
+                    (username, mode, filename, success, message, output_path)
                 )
                 conn.commit()
                 cursor.close()
@@ -885,7 +886,7 @@ class DatabaseManager:
                 cursor = conn.cursor(dictionary=True)
                 if username:
                     cursor.execute(
-                        """SELECT id, username, mode, filename, success, message, operation_time
+                        """SELECT id, username, mode, filename, success, message, output_path, operation_time
                         FROM conversion_logs
                         WHERE username = %s
                         ORDER BY operation_time DESC
@@ -934,6 +935,45 @@ class DatabaseManager:
             if conn:
                 DatabaseManager.return_connection(conn)
         return False, 0
+
+    @staticmethod
+    def get_user_logs(username, limit=50, offset=0):
+        """获取当前用户的转换记录（含输出文件路径）"""
+        conn = None
+        try:
+            conn = DatabaseManager.get_connection()
+            if conn:
+                cursor = conn.cursor(dictionary=True)
+                cursor.execute(
+                    """SELECT id, mode, filename, success, message, output_path, operation_time
+                    FROM conversion_logs
+                    WHERE username = %s
+                    ORDER BY operation_time DESC
+                    LIMIT %s OFFSET %s""",
+                    (username, limit, offset)
+                )
+                logs = cursor.fetchall()
+                for log in logs:
+                    if log.get('operation_time'):
+                        log['operation_time'] = str(log['operation_time'])
+                    # 检查输出文件是否存在
+                    if log.get('output_path'):
+                        log['file_exists'] = os.path.exists(log['output_path'])
+                    else:
+                        log['file_exists'] = False
+                cursor.execute(
+                    """SELECT COUNT(*) as cnt FROM conversion_logs WHERE username = %s""",
+                    (username,)
+                )
+                total = cursor.fetchone()['cnt']
+                cursor.close()
+                return True, logs, total
+        except Error as e:
+            return False, [], 0
+        finally:
+            if conn:
+                DatabaseManager.return_connection(conn)
+        return False, [], 0
 
     # ========================
     # 公告

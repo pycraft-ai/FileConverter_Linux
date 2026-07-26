@@ -18,7 +18,8 @@ converter_bp = Blueprint('converter', __name__)
 MODE_LIST = [
     'word转pdf', 'pdf转word', '图片转pdf', 'pdf转图片',
     'csv转excel', 'excel转csv', 'PDF OCR识别', '图片OCR识别',
-    '图片转ppt', 'pdf合并', 'md转pdf', 'excel转pdf', 'ppt转pdf', 'html转pdf'
+    '图片转ppt', 'pdf合并', 'md转pdf', 'excel转pdf', 'ppt转pdf', 'html转pdf',
+    'pdf加密', 'pdf解密'
 ]
 
 MODE_INPUT_TYPE = {
@@ -36,6 +37,8 @@ MODE_INPUT_TYPE = {
     'excel转pdf': 'file',
     'ppt转pdf': 'file',
     'html转pdf': 'file',
+    'pdf加密': 'file',
+    'pdf解密': 'file',
 }
 
 MODE_EXTENSIONS = {
@@ -53,6 +56,8 @@ MODE_EXTENSIONS = {
     'excel转pdf': '.xlsx,.xls',
     'ppt转pdf': '.pptx,.ppt',
     'html转pdf': '.html,.htm',
+    'pdf加密': '.pdf',
+    'pdf解密': '.pdf',
 }
 
 MODE_OUTPUT_EXT = {
@@ -70,6 +75,8 @@ MODE_OUTPUT_EXT = {
     'excel转pdf': '.pdf',
     'ppt转pdf': '.pdf',
     'html转pdf': '.pdf',
+    'pdf加密': '.enc.pdf',
+    'pdf解密': '.dec.pdf',
 }
 
 MODE_TO_FUNCTION = {
@@ -87,6 +94,8 @@ MODE_TO_FUNCTION = {
     'excel转pdf': 'excel_to_pdf',
     'ppt转pdf': 'ppt_to_pdf',
     'html转pdf': 'html_to_pdf',
+    'pdf加密': 'pdf_encrypt',
+    'pdf解密': 'pdf_decrypt',
 }
 
 # 各模式最大文件数
@@ -209,6 +218,8 @@ def convert():
         return jsonify({'success': False, 'message': '请先登录'})
 
     mode = request.form.get('mode', '')
+    # DEBUG
+    print(f"[DEBUG] mode='{mode}' repr={repr(mode)} len={len(mode)} in_list={mode in MODE_LIST}")
     if mode not in MODE_LIST:
         return jsonify({'success': False, 'message': '无效的转换模式'})
 
@@ -231,6 +242,7 @@ def convert():
 
     try:
         input_paths = []
+        original_filenames = []
         max_files = MODE_MAX_FILES.get(mode, 10)
 
         if input_type == 'file':
@@ -258,6 +270,7 @@ def convert():
                     return jsonify({'success': False, 'message': err})
 
                 input_paths.append(save_path)
+                original_filenames.append(original_filename)
 
             if len(input_paths) == 0:
                 return jsonify({'success': False, 'message': '没有有效的文件'})
@@ -288,6 +301,7 @@ def convert():
                     return jsonify({'success': False, 'message': err})
 
                 input_paths.append(save_path)
+                original_filenames.append(original_filename)
 
         elif input_type == 'directory':
             files = request.files.getlist('files')
@@ -340,9 +354,8 @@ def convert():
         result_message = '转换成功'
 
         if mode == 'pdf合并':
-            output_path = os.path.join(
-                Config.OUTPUT_FOLDER, f'{task_id}_merged.pdf'
-            )
+            first_name = os.path.splitext(original_filenames[0])[0] if original_filenames else 'merged'
+            output_path = os.path.join(Config.OUTPUT_FOLDER, f'{task_id}_{first_name}_合并.pdf')
             result = Function.merge_pdf(input_paths, output_path)
         elif mode == 'pdf转图片':
             output_dir = os.path.join(Config.OUTPUT_FOLDER, f'{task_id}_images')
@@ -353,7 +366,8 @@ def convert():
                 if not image_files:
                     return jsonify({'success': False, 'message': 'PDF转换失败，未生成图片'})
 
-                zip_path = os.path.join(Config.OUTPUT_FOLDER, f'{task_id}_images.zip')
+                img_base = os.path.splitext(original_filenames[0])[0] if original_filenames else 'pdf'
+                zip_path = os.path.join(Config.OUTPUT_FOLDER, f'{task_id}_{img_base}_图片.zip')
                 try:
                     with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
                         for img_file in image_files:
@@ -363,10 +377,61 @@ def convert():
                     output_path = zip_path
                 except Exception:
                     return jsonify({'success': False, 'message': '文件打包失败，请重试'})
+        elif mode in ('pdf加密', 'pdf解密'):
+            password = request.form.get('password', '').strip()
+            if not password:
+                return jsonify({'success': False, 'message': '请输入密码'})
+            if mode == 'pdf加密' and len(password) < 4:
+                return jsonify({'success': False, 'message': '加密密码长度不能少于4位'})
+
+            output_paths = []
+            failed_files = []
+            suffix = '加密' if mode == 'pdf加密' else '解密'
+            for i, input_path in enumerate(input_paths):
+                orig_name = original_filenames[i] if i < len(original_filenames) else os.path.basename(input_path)
+                base_name, _ = os.path.splitext(orig_name)
+                output_path = os.path.join(Config.OUTPUT_FOLDER, f'{task_id}_{base_name}_{suffix}.pdf')
+
+                try:
+                    if mode == 'pdf加密':
+                        single_result = Function.pdf_encrypt(input_path, output_path, password)
+                    else:
+                        single_result = Function.pdf_decrypt(input_path, output_path, password)
+
+                    if single_result and os.path.exists(output_path):
+                        output_paths.append(output_path)
+                    else:
+                        failed_files.append(orig_name)
+                except Exception as conv_err:
+                    print(f"{mode} 文件 {orig_name} 失败: {conv_err}")
+                    failed_files.append(orig_name)
+
+            if not output_paths:
+                result = False
+            else:
+                result = True
+                if len(output_paths) == 1:
+                    output_path = output_paths[0]
+                else:
+                    zip_name = f'{task_id}_转换结果.zip'
+                    zip_path = os.path.join(Config.OUTPUT_FOLDER, zip_name)
+                    try:
+                        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                            for out_path in output_paths:
+                                zipf.write(out_path, os.path.basename(out_path))
+                        output_path = zip_path
+                    except Exception:
+                        return jsonify({'success': False, 'message': '文件打包失败，请重试'})
+
+                if failed_files:
+                    result_message = f'成功 {len(output_paths)} 个，失败: {", ".join(failed_files)}'
+                else:
+                    result_message = '转换成功'
         elif input_type == 'directory':
+            dir_name = os.path.basename(input_paths[0]) if input_paths else task_id
             output_path = os.path.join(
                 Config.OUTPUT_FOLDER,
-                f'{task_id}{MODE_OUTPUT_EXT.get(mode, ".pdf")}'
+                f'{task_id}_{dir_name}{MODE_OUTPUT_EXT.get(mode, ".pdf")}'
             )
             result = getattr(Function, MODE_TO_FUNCTION[mode])(
                 input_paths[0], output_path
@@ -380,22 +445,20 @@ def convert():
             failed_files = []
 
             for i, input_path in enumerate(input_paths):
-                base_name = os.path.basename(input_path)
-                output_path = os.path.join(Config.OUTPUT_FOLDER, f'{task_id}_{i}_{base_name}')
-                ext = MODE_OUTPUT_EXT.get(mode, '')
-                if ext:
-                    base, _ = os.path.splitext(output_path)
-                    output_path = base + ext
+                orig_name = original_filenames[i] if i < len(original_filenames) else os.path.basename(input_path)
+                base_name, _ = os.path.splitext(orig_name)
+                out_ext = MODE_OUTPUT_EXT.get(mode, '')
+                output_path = os.path.join(Config.OUTPUT_FOLDER, f'{task_id}_{base_name}{out_ext}')
 
                 try:
                     single_result = getattr(Function, func_name)(input_path, output_path)
                     if single_result and os.path.exists(output_path):
                         output_paths.append(output_path)
                     else:
-                        failed_files.append(os.path.basename(input_path))
+                        failed_files.append(orig_name)
                 except Exception as conv_err:
-                    print(f"转换文件 {base_name} 失败: {conv_err}")
-                    failed_files.append(os.path.basename(input_path))
+                    print(f"转换文件 {orig_name} 失败: {conv_err}")
+                    failed_files.append(orig_name)
 
             if not output_paths:
                 result = False
@@ -404,7 +467,7 @@ def convert():
                 if len(output_paths) == 1:
                     output_path = output_paths[0]
                 else:
-                    zip_name = f'{task_id}_batch.zip'
+                    zip_name = f'{task_id}_转换结果.zip'
                     zip_path = os.path.join(Config.OUTPUT_FOLDER, zip_name)
                     try:
                         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
@@ -423,7 +486,8 @@ def convert():
             # 记录成功日志
             filename_list = ', '.join([os.path.basename(p) for p in input_paths])
             DatabaseManager.log_conversion(
-                session['username'], mode, filename_list, True, '转换成功'
+                session['username'], mode, filename_list, True, '转换成功',
+                output_path=output_path
             )
 
             remaining_times = None
@@ -447,12 +511,20 @@ def convert():
             else:
                 session['remaining_times'] = remaining_times or session.get('remaining_times', 0)
 
+            output_basename = os.path.basename(output_path)
+            # 去除 task_id_ 前缀得到显示名
+            display_name = output_basename
+            task_prefix = f'{task_id}_'
+            if output_basename.startswith(task_prefix):
+                display_name = output_basename[len(task_prefix):]
+
             return jsonify({
                 'success': True,
                 'message': result_message,
                 'download_url': url_for(
-                    'converter.download', filename=os.path.basename(output_path)
+                    'converter.download', filename=output_basename, name=display_name
                 ),
+                'display_name': display_name,
                 'remaining_times': remaining_times
             })
         else:
@@ -489,7 +561,9 @@ def download(filename):
     if not os.path.exists(safe_path):
         return jsonify({'success': False, 'message': '文件不存在或已过期'})
 
-    return send_file(safe_path, as_attachment=True)
+    # 用 name 参数作为下载显示的文件名（去掉哈希前缀）
+    display_name = request.args.get('name') or filename
+    return send_file(safe_path, as_attachment=True, download_name=display_name)
 
 
 @converter_bp.route('/contact', methods=['GET', 'POST'])
@@ -537,3 +611,30 @@ def user_unread_replies():
 
     count = DatabaseManager.get_unread_reply_count(username, visit_time)
     return jsonify({'count': count})
+
+
+@converter_bp.route('/my_logs')
+def my_logs():
+    """当前用户的转换记录"""
+    if 'username' not in session:
+        return redirect(url_for('auth.login'))
+
+    username = session['username']
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 20, type=int)
+    offset = (page - 1) * per_page
+
+    success, logs, total = DatabaseManager.get_user_logs(username, per_page, offset)
+    if not success:
+        logs = []
+        total = 0
+
+    total_pages = (total + per_page - 1) // per_page if total > 0 else 1
+
+    return render_template(
+        'my_logs.html',
+        logs=logs,
+        page=page,
+        total_pages=total_pages,
+        total=total
+    )

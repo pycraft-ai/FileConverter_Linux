@@ -33,6 +33,20 @@
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav ms-auto align-items-center">
+                    <!-- 主题切换 -->
+                    <li class="nav-item me-2">
+                        <div class="theme-switcher d-flex gap-1" style="background:var(--bg-item);border-radius:8px;padding:3px;">
+                            <button class="theme-btn active" data-theme="light" title="日间模式" style="border:none;background:none;width:32px;height:32px;border-radius:6px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--text-muted);transition:all .2s;">
+                                <i class="fas fa-sun"></i>
+                            </button>
+                            <button class="theme-btn" data-theme="eye-care" title="护眼模式" style="border:none;background:none;width:32px;height:32px;border-radius:6px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--text-muted);transition:all .2s;">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                            <button class="theme-btn" data-theme="dark" title="夜间模式" style="border:none;background:none;width:32px;height:32px;border-radius:6px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--text-muted);transition:all .2s;">
+                                <i class="fas fa-moon"></i>
+                            </button>
+                        </div>
+                    </li>
                     <li class="nav-item">
                         <span class="nav-link" style="color: #555;">
                             <i class="fas fa-user-circle me-1"></i>{{ session['username'] }}
@@ -62,6 +76,11 @@
                         </a>
                     </li>
                     {% endif %}
+                    <li class="nav-item">
+                        <a class="nav-link nav-btn" href="{{ url_for('converter.my_logs') }}">
+                            <i class="fas fa-history me-1"></i>转换记录
+                        </a>
+                    </li>
                     <li class="nav-item">
                         <a class="nav-link nav-btn logout-btn" href="{{ url_for('auth.logout') }}">
                             <i class="fas fa-sign-out-alt me-1"></i>退出
@@ -98,7 +117,34 @@
     <script src="{{ CDN_BASE_URL }}/jquery/3.7.1/jquery.min.js"></script>
     <script src="{{ CDN_BASE_URL }}/twitter-bootstrap/5.3.2/js/bootstrap.bundle.min.js" defer></script>
 
+    <style>
+    /* 主题切换按钮激活态 */
+    .theme-btn.active { background: var(--accent) !important; color: #fff !important; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
+    .theme-btn:hover { color: var(--accent) !important; }
+    .theme-btn.active:hover { color: #fff !important; }
+    </style>
+
     <script>
+    // ===== 主题切换 =====
+    (function() {
+        var saved = localStorage.getItem('theme') || 'light';
+        document.documentElement.setAttribute('data-theme', saved);
+        document.querySelectorAll('.theme-btn').forEach(function(btn) {
+            btn.classList.toggle('active', btn.getAttribute('data-theme') === saved);
+        });
+
+        document.querySelector('.theme-switcher').addEventListener('click', function(e) {
+            var btn = e.target.closest('.theme-btn');
+            if (!btn) return;
+            var theme = btn.getAttribute('data-theme');
+            document.documentElement.setAttribute('data-theme', theme);
+            localStorage.setItem('theme', theme);
+            document.querySelectorAll('.theme-btn').forEach(function(b) {
+                b.classList.toggle('active', b.getAttribute('data-theme') === theme);
+            });
+        });
+    })();
+
     // ===== CSRF 防护：所有 AJAX POST 请求自动附带 CSRF token =====
     var _csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
     // 拦截全局 fetch，自动为 POST/PUT/DELETE 请求添加 CSRF header
