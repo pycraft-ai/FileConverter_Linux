@@ -12,3 +12,7 @@ Werkzeug
 requests
 markdown
 python-dotenv
+
+# 压缩/解压
+py7zr
+pyzipper

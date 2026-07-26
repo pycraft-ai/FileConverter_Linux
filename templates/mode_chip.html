@@ -1,6 +1,6 @@
 <label class="mode-chip">
     <input class="mode-radio" type="radio" name="mode" value="{{ mode }}"
-           data-input-type="{{ 'file' if mode in ['word转pdf','pdf转word','pdf转图片','csv转excel','excel转csv','PDF OCR识别','图片OCR识别','md转pdf','excel转pdf','ppt转pdf','html转pdf','pdf加密','pdf解密'] else 'directory' if mode in ['图片转pdf','图片转ppt'] else 'files' }}">
+           data-input-type="{{ 'file' if mode in ['word转pdf','pdf转word','pdf转图片','csv转excel','excel转csv','PDF OCR识别','图片OCR识别','md转pdf','excel转pdf','ppt转pdf','html转pdf','pdf加密','pdf解密','文件解压','压缩包解密'] else 'directory' if mode in ['图片转pdf','图片转ppt'] else 'files' }}">
     <span class="chip-label">
         <span class="chip-icon">
             {% if 'word' in mode and 'pdf' not in mode %}
@@ -35,6 +35,12 @@
                 <i class="fas fa-object-group" style="color:#ea580c;"></i>
             {% elif 'md' in mode %}
                 <i class="fab fa-markdown" style="color:#0891b2;"></i>
+            {% elif mode == '文件压缩' %}
+                <i class="fas fa-compress-arrows-alt" style="color:#0891b2;"></i>
+            {% elif mode == '文件解压' %}
+                <i class="fas fa-expand-arrows-alt" style="color:#7c3aed;"></i>
+            {% elif mode == '压缩包解密' %}
+                <i class="fas fa-unlock-alt" style="color:#d97706;"></i>
             {% else %}
                 <i class="fas fa-file" style="color:#94a3b8;"></i>
             {% endif %}

@@ -252,6 +252,7 @@
         {% set text_modes = ['md转pdf','html转pdf','PDF OCR识别','图片OCR识别'] %}
         {% set media_modes = ['图片转pdf','pdf转图片','图片转ppt','pdf合并'] %}
         {% set secure_modes = ['pdf加密','pdf解密'] %}
+        {% set archive_modes = ['文件压缩','文件解压','压缩包解密'] %}
         
         <div class="mode-cat">
             <div class="mode-cat-label">📎 Office 文档</div>
@@ -281,6 +282,14 @@
             <div class="mode-cat-label">🔐 安全</div>
             <div class="mode-row">
                 {% for mode in modes if mode in secure_modes %}
+                {% include "mode_chip.html" %}
+                {% endfor %}
+            </div>
+        </div>
+        <div class="mode-cat">
+            <div class="mode-cat-label">📦 压缩 / 解压</div>
+            <div class="mode-row">
+                {% for mode in modes if mode in archive_modes %}
                 {% include "mode_chip.html" %}
                 {% endfor %}
             </div>
@@ -321,7 +330,7 @@
             <div id="fileListItems"></div>
         </div>
 
-        <!-- 密码输入（PDF加密/解密用） -->
+        <!-- 密码输入（PDF加密/解密/压缩加密/压缩包解密用） -->
         <div id="passwordArea" style="display:none; margin-top:16px;">
             <div style="display:flex;align-items:center;gap:8px;background:var(--bg-item);border:var(--border-color);border-radius:10px;padding:12px 16px;">
                 <i class="fas fa-key" style="color:var(--accent);"></i>
@@ -340,6 +349,20 @@
             <div id="passwordHint" style="font-size:12px;color:var(--text-muted);margin-top:4px;padding-left:8px;"></div>
         </div>
 
+        <!-- 压缩格式选择（压缩模式用） -->
+        <div id="formatArea" style="display:none; margin-top:16px;">
+            <div style="display:flex;align-items:center;gap:8px;background:var(--bg-item);border:var(--border-color);border-radius:10px;padding:12px 16px;">
+                <i class="fas fa-file-archive" style="color:var(--accent);"></i>
+                <span style="font-size:13px;color:var(--text-secondary);font-weight:500;">压缩格式</span>
+                <select id="formatSelect" style="border:var(--border-color);background:var(--bg-card);border-radius:6px;padding:6px 10px;font-size:13px;color:var(--text-primary);">
+                    <option value="zip">ZIP (通用)</option>
+                    <option value="tar.gz">TAR.GZ (Linux)</option>
+                    <option value="7z">7Z (高压缩率)</option>
+                </select>
+                <span id="formatHint" style="font-size:11px;color:var(--text-muted);margin-left:4px;"></span>
+            </div>
+        </div>
+
         <!-- 转换按钮 -->
         <button type="button" class="btn-convert" id="convertBtn" disabled>
             <i class="fas fa-magic me-2"></i>开始转换
@@ -352,9 +375,102 @@
             </div>
             <div class="result-msg" id="resultMessage" style="display:none;"></div>
             <a class="btn-dl hidden" id="downloadBtn"><i class="fas fa-download"></i> 下载文件</a>
+            <!-- 解压文件列表 -->
+            <div id="extractedFilesArea" style="display:none;margin-top:12px;">
+                <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:6px;">
+                    <i class="fas fa-files me-1"></i>解压文件列表
+                </div>
+                <div id="extractedFilesList" style="max-height:200px;overflow-y:auto;background:var(--bg-item);border-radius:8px;padding:8px 12px;font-size:12px;color:var(--text-secondary);line-height:1.8;"></div>
+            </div>
         </div>
     </div>
 </div>
+
+<!-- 密码输入弹窗（解压加密文件用） -->
+<div class="modal-overlay" id="passwordModal" style="display:none;">
+    <div class="modal-box">
+        <div class="modal-header">
+            <i class="fas fa-lock" style="color:#f59e0b;font-size:20px;"></i>
+            <span class="modal-title">输入密码</span>
+        </div>
+        <div class="modal-body">
+            <div id="passwordModalMsg" style="font-size:14px;color:var(--text-secondary);margin-bottom:12px;">检测到该压缩文件加密，请输入密码</div>
+            <input type="password" id="passwordModalInput" class="form-control" placeholder="请输入解压密码" style="width:100%;padding:10px 14px;border-radius:8px;border:var(--border-color);font-size:14px;background:var(--bg-card);color:var(--text-primary);" autocomplete="off">
+        </div>
+        <div class="modal-footer">
+            <div></div>
+            <div class="modal-btns">
+                <button class="modal-btn cancel" id="passwordModalCancel">取消</button>
+                <button class="modal-btn confirm" id="passwordModalConfirm">确认解压</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 重复文件确认弹窗 -->
+<div class="modal-overlay" id="duplicateModal" style="display:none;">
+    <div class="modal-box">
+        <div class="modal-header">
+            <i class="fas fa-exclamation-triangle" style="color:#f59e0b;font-size:20px;"></i>
+            <span class="modal-title">确认转换</span>
+        </div>
+        <div class="modal-body" id="duplicateModalMsg"></div>
+        <div class="modal-footer">
+            <label class="dont-ask-label" id="dontAskLabel">
+                <input type="checkbox" id="dontAskCheck">
+                <span>本次对话不再提示</span>
+            </label>
+            <div class="modal-btns">
+                <button class="modal-btn cancel" id="duplicateCancel">取消</button>
+                <button class="modal-btn confirm" id="duplicateConfirm">继续转换</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+/* 弹窗样式 */
+.modal-overlay {
+    position: fixed; top:0; left:0; right:0; bottom:0;
+    background: rgba(0,0,0,.5); z-index: 10000;
+    display:flex; align-items:center; justify-content:center;
+    backdrop-filter: blur(4px); animation: modalFadeIn .2s;
+}
+@keyframes modalFadeIn { from { opacity:0; } to { opacity:1; } }
+.modal-box {
+    background: var(--bg-card); border-radius:16px; padding:0;
+    width:420px; max-width:90vw; box-shadow:0 20px 60px rgba(0,0,0,.25);
+    border: var(--border-color); animation: modalSlideIn .25s;
+}
+@keyframes modalSlideIn { from { transform: translateY(-20px) scale(.97); opacity:0; } to { transform: translateY(0) scale(1); opacity:1; } }
+.modal-header {
+    display:flex; align-items:center; gap:12px;
+    padding:20px 24px 0; font-size:17px; font-weight:700; color:var(--text-primary);
+}
+.modal-body {
+    padding:14px 24px; font-size:14px; color:var(--text-secondary); line-height:1.6;
+}
+.modal-footer {
+    display:flex; align-items:center; justify-content:space-between;
+    padding:16px 24px 20px; gap:12px; flex-wrap:wrap;
+}
+.dont-ask-label {
+    display:flex; align-items:center; gap:6px;
+    font-size:13px; color:var(--text-muted); cursor:pointer; user-select:none;
+}
+.dont-ask-label input[type="checkbox"] {
+    width:16px; height:16px; cursor:pointer; accent-color:#667eea;
+}
+.modal-btns { display:flex; gap:8px; }
+.modal-btn {
+    padding:8px 20px; border-radius:8px; font-size:13px; font-weight:600;
+    cursor:pointer; border:none; transition:all .15s;
+}
+.modal-btn.cancel { background:var(--bg-item); color:var(--text-secondary); }
+.modal-btn.cancel:hover { background:var(--bg-item-hover); }
+.modal-btn.confirm { background:#667eea; color:#fff; }
+.modal-btn.confirm:hover { background:#5a6fd6; }
+</style>
 {% endblock %}
 
 {% block scripts %}
@@ -404,7 +520,23 @@ $(document).ready(function() {
             'files': '按住 Ctrl 可选择多个 PDF 文件',
             'directory': '选择文件夹中的所有图片文件'
         };
-        $('#fileHint').text(hints[inputType] || '请选择合适的文件格式');
+        const modeHints = {
+            '文件压缩': '选择要压缩的文件（支持 ZIP/TAR.GZ/7Z）',
+            '文件解压': '上传压缩包（支持 ZIP/TAR.GZ/7Z）',
+            '压缩包解密': '上传加密的压缩包（ZIP 或 7Z 格式）',
+        };
+        $('#fileHint').text(modeHints[mode] || hints[inputType] || '请选择合适的文件格式');
+
+        // 根据模式修改转换按钮文字
+        const btnTexts = {
+            '文件压缩': '开始压缩',
+            '文件解压': '开始解压',
+            '压缩包解密': '开始解密',
+            'pdf加密': '开始加密',
+            'pdf解密': '开始解密',
+            'pdf合并': '开始合并',
+        };
+        $('#convertBtn').html('<i class="fas fa-magic me-2"></i>' + (btnTexts[mode] || '开始转换'));
 
         // PDF 加密/解密时显示密码输入框
         if (mode === 'pdf加密' || mode === 'pdf解密') {
@@ -418,6 +550,25 @@ $(document).ready(function() {
         } else if ($('#passwordArea').is(':visible')) {
             $('#passwordArea').hide();
             $('#passwordInput').val('');
+        }
+
+        // 压缩模式：显示格式选择
+        if (mode === '文件压缩') {
+            $('#formatArea').show();
+            $('#formatHint').text('ZIP 和 7Z 支持密码加密');
+        } else if ($('#formatArea').is(':visible')) {
+            $('#formatArea').hide();
+        }
+
+        // 文件压缩/压缩包解密：显示密码输入框（可选/必填）
+        if (mode === '文件压缩') {
+            $('#passwordArea').show();
+            $('#passwordHint').text('可选：设置密码保护压缩包（ZIP/7Z 支持）');
+            $('#pwdStrength').hide();
+        } else if (mode === '压缩包解密') {
+            $('#passwordArea').show();
+            $('#passwordHint').text('输入该压缩包的密码，去除密码保护');
+            $('#pwdStrength').hide();
         }
 
         // 判断是否同一输入框
@@ -724,6 +875,8 @@ $(document).ready(function() {
 
     // ===== 开始转换 =====
     $('#convertBtn').on('click', function() {
+        // 隐藏上次的解压文件列表
+        $('#extractedFilesArea').hide();
         const mode = $('input[name="mode"]:checked').val();
         if (!mode) { showToast('请先选择转换模式'); return; }
 
@@ -754,6 +907,33 @@ $(document).ready(function() {
             formData.append('password', pwd);
         }
 
+        // 压缩模式：添加格式参数
+        if (mode === '文件压缩') {
+            formData.append('archive_format', $('#formatSelect').val());
+            const pwd = $('#passwordInput').val().trim();
+            if (pwd) {
+                if (pwd.length < 4) {
+                    showToast('加密密码长度不能少于 4 位');
+                    return;
+                }
+                if ($('#formatSelect').val() === 'tar.gz') {
+                    showToast('TAR.GZ 不支持加密，请选择 ZIP 或 7Z');
+                    return;
+                }
+                formData.append('password', pwd);
+            }
+        }
+
+        // 压缩包解密需要密码
+        if (mode === '压缩包解密') {
+            const pwd = $('#passwordInput').val().trim();
+            if (!pwd) {
+                showToast('请输入压缩包密码');
+                return;
+            }
+            formData.append('password', pwd);
+        }
+
         // 从 _pendingFiles 中按当前顺序取出文件
         var fieldName = (inputType === 'file') ? 'file' : 'files';
         for (var i = 0; i < window._pendingFiles.length; i++) {
@@ -775,6 +955,9 @@ $(document).ready(function() {
 
         $('html, body').animate({ scrollTop: $res.offset().top - 80 }, 400);
 
+        // 保存 formData 供重复确认弹窗重新提交
+        window._lastFormData = formData;
+
         $.ajax({
             url: '{{ url_for("converter.convert") }}',
             type: 'POST',
@@ -791,6 +974,24 @@ $(document).ready(function() {
                 return xhr;
             },
             success: function(response) {
+                // 重复文件警告
+                if (response.duplicate_warning) {
+                    $btn.prop('disabled', false);
+                    $res.removeClass('show');
+                    showDuplicateModal(response.message);
+                    return;
+                }
+
+                // 解压加密文件需要密码
+                if (response.need_password) {
+                    $btn.prop('disabled', false);
+                    $res.removeClass('show');
+                    $('#passwordModalMsg').text(response.message || '检测到该压缩文件加密，请输入密码');
+                    $('#passwordModalInput').val('');
+                    $('#passwordModal').fadeIn(150);
+                    return;
+                }
+
                 let pct = 50;
                 const iv = setInterval(function() {
                     pct += Math.random() * 12;
@@ -809,6 +1010,30 @@ $(document).ready(function() {
                             if (response.display_name) {
                                 $dl.html('<i class="fas fa-download"></i> ' + response.display_name);
                             }
+                        }
+                        // 解压模式：显示文件列表（可单个下载）
+                        if (response.extracted_files && response.extracted_files.length > 0) {
+                            var $extArea = $('#extractedFilesArea');
+                            var $extList = $('#extractedFilesList');
+                            $extList.empty();
+                            response.extracted_files.forEach(function(f) {
+                                var icon = 'fa-file';
+                                var name = f.name || f.path;
+                                var ext = name.split('.').pop().toLowerCase();
+                                if (['jpg','jpeg','png','gif','bmp','webp'].indexOf(ext) >= 0) icon = 'fa-file-image';
+                                else if (['pdf'].indexOf(ext) >= 0) icon = 'fa-file-pdf';
+                                else if (['doc','docx'].indexOf(ext) >= 0) icon = 'fa-file-word';
+                                else if (['xls','xlsx'].indexOf(ext) >= 0) icon = 'fa-file-excel';
+                                else if (['zip','rar','7z','tar','gz'].indexOf(ext) >= 0) icon = 'fa-file-archive';
+                                $extList.append(
+                                    '<div style="display:flex;align-items:center;gap:6px;padding:2px 0;">' +
+                                    '<i class="fas ' + icon + '" style="color:var(--text-muted);width:14px;text-align:center;"></i>' +
+                                    '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escapeHtml(f.path) + '</span>' +
+                                    (f.download_url ? '<a href="' + f.download_url + '" style="color:#667eea;font-size:11px;text-decoration:none;white-space:nowrap;flex-shrink:0;"><i class="fas fa-download"></i> 下载</a>' : '') +
+                                    '</div>'
+                                );
+                            });
+                            $extArea.show();
                         }
                         if (response.remaining_times !== undefined && response.remaining_times !== null) {
                             const $r = $('#remainingTimes');
@@ -838,6 +1063,203 @@ $(document).ready(function() {
                 if (rt > 0) $btn.prop('disabled', false);
             }
         });
+    });
+
+    // ===== 重复文件确认弹窗 =====
+    window._lastFormData = null;
+
+    window.showDuplicateModal = function(msg) {
+        $('#duplicateModalMsg').text(msg || '检测到与上次转换文件相同，为避免浪费次数，请确认是否继续转换');
+        $('#duplicateModal').fadeIn(150);
+    };
+
+    $('#duplicateConfirm').on('click', function() {
+        var dontAsk = $('#dontAskCheck').is(':checked');
+        if (dontAsk) {
+            window._lastFormData.append('dont_ask_again', '1');
+        }
+        window._lastFormData.append('confirmed', '1');
+        $('#duplicateModal').fadeOut(100);
+
+        // 重新提交
+        var $res = $('#resultArea'), $fill = $('#progressFill');
+        var $msg = $('#resultMessage'), $dl = $('#downloadBtn'), $btn = $('#convertBtn');
+        $res.addClass('show');
+        $fill.css('width', '5%');
+        $msg.hide().removeClass('success error');
+        $dl.addClass('hidden');
+        $btn.prop('disabled', true);
+
+        $.ajax({
+            url: '{{ url_for("converter.convert") }}',
+            type: 'POST',
+            data: window._lastFormData,
+            processData: false,
+            contentType: false,
+            xhr: function() {
+                const xhr = new XMLHttpRequest();
+                xhr.upload.addEventListener('progress', function(e) {
+                    if (e.lengthComputable) {
+                        $fill.css('width', Math.round(e.loaded / e.total * 50) + '%');
+                    }
+                });
+                return xhr;
+            },
+            success: function(response) {
+                let pct = 50;
+                const iv = setInterval(function() {
+                    pct += Math.random() * 12;
+                    if (pct >= 95) { pct = 95; clearInterval(iv); }
+                    $fill.css('width', pct + '%');
+                }, 250);
+                setTimeout(function() {
+                    clearInterval(iv);
+                    $fill.css('width', '100%');
+                    if (response.success) {
+                        $msg.addClass('success').html('<i class="fas fa-check-circle me-1"></i>' + response.message).show();
+                        if (response.download_url) {
+                            $dl.attr('href', response.download_url).removeClass('hidden');
+                            if (response.display_name) {
+                                $dl.html('<i class="fas fa-download"></i> ' + response.display_name);
+                            }
+                        }
+                        if (response.remaining_times !== undefined && response.remaining_times !== null) {
+                            var $r = $('#remainingTimes');
+                            $r.text(response.remaining_times);
+                            var badge = $r.closest('.stat-badge');
+                            if (response.remaining_times <= 5) badge.addClass('warn');
+                            else badge.removeClass('warn');
+                            if (response.remaining_times <= 0) {
+                                $btn.prop('disabled', true);
+                                showToast('剩余次数已用完');
+                            }
+                        }
+                    } else {
+                        $msg.addClass('error').html('<i class="fas fa-exclamation-circle me-1"></i>' + response.message).show();
+                    }
+                }, 600);
+            },
+            error: function() {
+                $fill.css('width', '100%').css('background', '#ef4444');
+                $msg.addClass('error').html('<i class="fas fa-times-circle me-1"></i>网络错误，请重试').show();
+            },
+            complete: function() {
+                var rt = parseInt($('#remainingTimes').text()) || 0;
+                if (rt > 0) $btn.prop('disabled', false);
+            }
+        });
+    });
+
+    $('#duplicateCancel').on('click', function() {
+        $('#duplicateModal').fadeOut(100);
+    });
+    // 点击遮罩层也可关闭
+    $(document).on('click', '#duplicateModal', function(e) {
+        if (e.target === this) $('#duplicateModal').fadeOut(100);
+    });
+
+    // ===== 密码输入弹窗（解压加密文件用） =====
+    $('#passwordModalConfirm').on('click', function() {
+        var pwd = $('#passwordModalInput').val().trim();
+        if (!pwd) {
+            showToast('请输入密码');
+            return;
+        }
+        $('#passwordModal').fadeOut(100);
+        // 在已保存的 formData 中添加密码，重新提交
+        window._lastFormData.append('password', pwd);
+        window._lastFormData.append('confirmed', '1');
+        // 重新提交
+        var $res2 = $('#resultArea'), $fill2 = $('#progressFill');
+        var $msg2 = $('#resultMessage'), $dl2 = $('#downloadBtn'), $btn2 = $('#convertBtn');
+        $res2.addClass('show');
+        $fill2.css('width', '5%');
+        $msg2.hide().removeClass('success error');
+        $dl2.addClass('hidden');
+        $('#extractedFilesArea').hide();
+        $btn2.prop('disabled', true);
+
+        $.ajax({
+            url: '{{ url_for("converter.convert") }}',
+            type: 'POST',
+            data: window._lastFormData,
+            processData: false,
+            contentType: false,
+            xhr: function() {
+                const xhr = new XMLHttpRequest();
+                xhr.upload.addEventListener('progress', function(e) {
+                    if (e.lengthComputable) {
+                        $fill2.css('width', Math.round(e.loaded / e.total * 50) + '%');
+                    }
+                });
+                return xhr;
+            },
+            success: function(response) {
+                let pct = 50;
+                const iv = setInterval(function() {
+                    pct += Math.random() * 12;
+                    if (pct >= 95) { pct = 95; clearInterval(iv); }
+                    $fill2.css('width', pct + '%');
+                }, 250);
+                setTimeout(function() {
+                    clearInterval(iv);
+                    $fill2.css('width', '100%');
+                    if (response.success) {
+                        $msg2.addClass('success').html('<i class="fas fa-check-circle me-1"></i>' + response.message).show();
+                        if (response.download_url) {
+                            $dl2.attr('href', response.download_url).removeClass('hidden');
+                            if (response.display_name) {
+                                $dl2.html('<i class="fas fa-download"></i> ' + response.display_name);
+                            }
+                        }
+                        if (response.extracted_files && response.extracted_files.length > 0) {
+                            var $ext2 = $('#extractedFilesList');
+                            $ext2.empty();
+                            response.extracted_files.forEach(function(f) {
+                                var icon2 = 'fa-file';
+                                var ext2 = (f.name || f.path).split('.').pop().toLowerCase();
+                                if (['jpg','jpeg','png','gif','bmp','webp'].indexOf(ext2) >= 0) icon2 = 'fa-file-image';
+                                else if (ext2 === 'pdf') icon2 = 'fa-file-pdf';
+                                else if (['doc','docx'].indexOf(ext2) >= 0) icon2 = 'fa-file-word';
+                                $ext2.append(
+                                    '<div style="display:flex;align-items:center;gap:6px;padding:2px 0;">' +
+                                    '<i class="fas ' + icon2 + '" style="color:var(--text-muted);width:14px;text-align:center;"></i>' +
+                                    '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escapeHtml(f.path) + '</span>' +
+                                    (f.download_url ? '<a href="' + f.download_url + '" style="color:#667eea;font-size:11px;text-decoration:none;white-space:nowrap;flex-shrink:0;"><i class="fas fa-download"></i> 下载</a>' : '') +
+                                    '</div>'
+                                );
+                            });
+                            $('#extractedFilesArea').show();
+                        }
+                        if (response.remaining_times !== undefined && response.remaining_times !== null) {
+                            var $r = $('#remainingTimes');
+                            $r.text(response.remaining_times);
+                            var badge = $r.closest('.stat-badge');
+                            if (response.remaining_times <= 5) badge.addClass('warn');
+                            else badge.removeClass('warn');
+                            if (response.remaining_times <= 0) $btn2.prop('disabled', true);
+                        }
+                    } else {
+                        $msg2.addClass('error').html('<i class="fas fa-exclamation-circle me-1"></i>' + response.message).show();
+                    }
+                }, 600);
+            },
+            error: function() {
+                $fill2.css('width', '100%').css('background', '#ef4444');
+                $msg2.addClass('error').html('<i class="fas fa-times-circle me-1"></i>网络错误，请重试').show();
+            },
+            complete: function() {
+                var rt = parseInt($('#remainingTimes').text()) || 0;
+                if (rt > 0) $btn2.prop('disabled', false);
+            }
+        });
+    });
+
+    $('#passwordModalCancel').on('click', function() {
+        $('#passwordModal').fadeOut(100);
+    });
+    $(document).on('click', '#passwordModal', function(e) {
+        if (e.target === this) $('#passwordModal').fadeOut(100);
     });
 
     // ===== Toast =====

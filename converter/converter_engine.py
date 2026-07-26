@@ -571,3 +571,152 @@ img {{ max-width: 100%; }}
         except Exception as e:
             print(f"PDF解密失败: {e}")
             return False
+
+    # ==========================================================
+    # 压缩 / 解压 / 去密
+    # ==========================================================
+
+    @staticmethod
+    def compress_zip(input_paths, output_path, password=None, arcnames=None):
+        """压缩为 ZIP（可选密码加密），arcnames 为原始文件名列表"""
+        try:
+            names = arcnames or [os.path.basename(p) for p in input_paths]
+            if password:
+                import pyzipper
+                with pyzipper.AESZipFile(output_path, 'w',
+                                          encryption=pyzipper.WZ_AES) as zf:
+                    zf.setpassword(password.encode('utf-8'))
+                    for path, name in zip(input_paths, names):
+                        zf.write(path, name)
+            else:
+                import zipfile
+                with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                    for path, name in zip(input_paths, names):
+                        zf.write(path, name)
+            return True
+        except Exception as e:
+            print(f"ZIP压缩失败: {e}")
+            return False
+
+    @staticmethod
+    def compress_targz(input_paths, output_path, arcnames=None):
+        """压缩为 TAR.GZ（不支持加密），arcnames 为原始文件名列表"""
+        try:
+            import tarfile
+            names = arcnames or [os.path.basename(p) for p in input_paths]
+            with tarfile.open(output_path, 'w:gz') as tf:
+                for path, name in zip(input_paths, names):
+                    tf.add(path, arcname=name)
+            return True
+        except Exception as e:
+            print(f"TAR.GZ压缩失败: {e}")
+            return False
+
+    @staticmethod
+    def compress_7z(input_paths, output_path, password=None, arcnames=None):
+        """压缩为 7Z（可选 AES-256 加密），arcnames 为原始文件名列表"""
+        try:
+            import py7zr
+            names = arcnames or [os.path.basename(p) for p in input_paths]
+            if password:
+                with py7zr.SevenZipFile(output_path, 'w',
+                                         password=password) as szf:
+                    for path, name in zip(input_paths, names):
+                        szf.write(path, name)
+            else:
+                with py7zr.SevenZipFile(output_path, 'w') as szf:
+                    for path, name in zip(input_paths, names):
+                        szf.write(path, name)
+            return True
+        except Exception as e:
+            print(f"7Z压缩失败: {e}")
+            return False
+
+    @staticmethod
+    def is_archive_encrypted(path):
+        """检测压缩包是否加密（快速检查，不提取内容）"""
+        fname = path.lower()
+        try:
+            if fname.endswith('.zip'):
+                import zipfile
+                with zipfile.ZipFile(path, 'r') as zf:
+                    for info in zf.infolist():
+                        if info.flag_bits & 0x1:
+                            return True
+                return False
+            elif fname.endswith('.7z'):
+                import py7zr
+                try:
+                    with py7zr.SevenZipFile(path, 'r') as szf:
+                        return szf.needs_password()
+                except Exception:
+                    return False
+            return False
+        except Exception as e:
+            print(f"检测加密状态失败: {e}")
+            return False
+
+    @staticmethod
+    def decompress_archive(input_path, output_dir, password=None):
+        """解压压缩包（自动识别格式）"""
+        fname = input_path.lower()
+        try:
+            if fname.endswith('.zip'):
+                if password:
+                    # 加密 ZIP 需用 pyzipper（支持 AES）
+                    import pyzipper
+                    with pyzipper.AESZipFile(input_path, 'r') as zf:
+                        zf.setpassword(password.encode('utf-8'))
+                        zf.extractall(output_dir)
+                else:
+                    import zipfile
+                    with zipfile.ZipFile(input_path, 'r') as zf:
+                        zf.extractall(output_dir)
+                return True
+            elif fname.endswith('.tar.gz') or fname.endswith('.tgz') or fname.endswith('.tar'):
+                import tarfile
+                with tarfile.open(input_path, 'r:*') as tf:
+                    tf.extractall(output_dir)
+                return True
+            elif fname.endswith('.7z'):
+                import py7zr
+                with py7zr.SevenZipFile(input_path, 'r',
+                                        password=password) as szf:
+                    szf.extractall(output_dir)
+                return True
+            else:
+                print(f"不支持的解压格式: {input_path}")
+                return False
+        except Exception as e:
+            print(f"解压失败: {e}")
+            return False
+
+    @staticmethod
+    def decrypt_archive(input_path, output_path, password):
+        """去除压缩包密码保护（解压后重新打包为无密码 ZIP）"""
+        import tempfile
+        import shutil
+        temp_dir = tempfile.mkdtemp()
+        try:
+            # 用密码解压
+            if not Function.decompress_archive(input_path, temp_dir, password):
+                return False
+            # 收集所有解压出的文件
+            extracted = []
+            for root, _dirs, files in os.walk(temp_dir):
+                for f in files:
+                    extracted.append(os.path.join(root, f))
+            if not extracted:
+                return False
+            # 重新打包为无密码 ZIP
+            import zipfile
+            with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                for file_path in extracted:
+                    arcname = os.path.relpath(file_path, temp_dir)
+                    zf.write(file_path, arcname)
+            return True
+        except Exception as e:
+            print(f"压缩包去密失败: {e}")
+            return False
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)

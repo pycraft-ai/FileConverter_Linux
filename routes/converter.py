@@ -19,7 +19,8 @@ MODE_LIST = [
     'word转pdf', 'pdf转word', '图片转pdf', 'pdf转图片',
     'csv转excel', 'excel转csv', 'PDF OCR识别', '图片OCR识别',
     '图片转ppt', 'pdf合并', 'md转pdf', 'excel转pdf', 'ppt转pdf', 'html转pdf',
-    'pdf加密', 'pdf解密'
+    'pdf加密', 'pdf解密',
+    '文件压缩', '文件解压', '压缩包解密'
 ]
 
 MODE_INPUT_TYPE = {
@@ -39,6 +40,9 @@ MODE_INPUT_TYPE = {
     'html转pdf': 'file',
     'pdf加密': 'file',
     'pdf解密': 'file',
+    '文件压缩': 'files',
+    '文件解压': 'file',
+    '压缩包解密': 'file',
 }
 
 MODE_EXTENSIONS = {
@@ -58,6 +62,9 @@ MODE_EXTENSIONS = {
     'html转pdf': '.html,.htm',
     'pdf加密': '.pdf',
     'pdf解密': '.pdf',
+    '文件压缩': None,
+    '文件解压': '.zip,.tar.gz,.tgz,.tar,.7z',
+    '压缩包解密': '.zip,.7z',
 }
 
 MODE_OUTPUT_EXT = {
@@ -77,6 +84,9 @@ MODE_OUTPUT_EXT = {
     'html转pdf': '.pdf',
     'pdf加密': '.enc.pdf',
     'pdf解密': '.dec.pdf',
+    '文件压缩': '.zip',
+    '文件解压': '.zip',
+    '压缩包解密': '.zip',
 }
 
 MODE_TO_FUNCTION = {
@@ -148,12 +158,17 @@ def _validate_uploaded_file(file, mode: str) -> str | None:
 def _validate_saved_file(filepath: str, filename: str, mode: str) -> str | None:
     """
     文件保存后的内容校验：幻数 + 恶意内容扫描。
+    压缩模式接受任意文件，跳过内容校验。
     Returns: 错误消息字符串，None 表示通过。
     """
     if '.' not in filename:
         return '文件缺少扩展名'
 
     ext = filename.rsplit('.', 1)[1].lower()
+
+    # 压缩/解压/去密模式接受任意文件，跳过内容校验
+    if mode in ('文件压缩', '文件解压', '压缩包解密'):
+        return None
 
     # 内容验证
     is_valid, err_msg = validate_file_content(filepath, ext)
@@ -175,6 +190,9 @@ def allowed_file(filename, mode):
     ext = filename.rsplit('.', 1)[1].lower()
     allowed_exts = MODE_EXTENSIONS.get(mode)
     if allowed_exts is None:
+        # 压缩模式允许所有文件类型
+        if mode == '文件压缩':
+            return True
         return ext in ['jpg', 'jpeg', 'png', 'bmp', 'gif', 'tiff']
     allowed_list = [e.strip().lstrip('.') for e in allowed_exts.split(',')]
     return ext in allowed_list
@@ -350,6 +368,20 @@ def convert():
                 return jsonify({'success': False, 'message': '没有有效的图片文件'})
             input_paths = [dir_path]
 
+        # ---- 重复文件检测 ----
+        if not request.form.get('confirmed'):
+            last_info = session.get('last_file_info')
+            if (last_info and input_type == 'file' and original_filenames
+                    and not session.get('skip_duplicate_check')):
+                current_name = original_filenames[0]
+                current_size = os.path.getsize(input_paths[0]) if input_paths else 0
+                if (current_name == last_info.get('name')
+                        and current_size == last_info.get('size')):
+                    return jsonify({
+                        'duplicate_warning': True,
+                        'message': '检测到与上次转换文件相同，为避免浪费次数，请确认是否继续转换'
+                    })
+
         # ---- 执行转换 ----
         result_message = '转换成功'
 
@@ -427,6 +459,87 @@ def convert():
                     result_message = f'成功 {len(output_paths)} 个，失败: {", ".join(failed_files)}'
                 else:
                     result_message = '转换成功'
+        elif mode == '文件压缩':
+            password = request.form.get('password', '').strip() or None
+            archive_format = request.form.get('archive_format', 'zip')
+            if archive_format not in ('zip', 'tar.gz', '7z'):
+                return jsonify({'success': False, 'message': '不支持的压缩格式'})
+            if password and archive_format == 'tar.gz':
+                return jsonify({'success': False, 'message': 'TAR.GZ 格式不支持密码加密，请选择 ZIP 或 7Z'})
+            if password and len(password) < 4:
+                return jsonify({'success': False, 'message': '加密密码长度不能少于 4 位'})
+
+            # 用第一个文件名作为压缩包命名基础
+            base_name = os.path.splitext(original_filenames[0])[0] if original_filenames else '文件'
+            output_ext = '.tar.gz' if archive_format == 'tar.gz' else f'.{archive_format}'
+            output_path = os.path.join(Config.OUTPUT_FOLDER, f'{task_id}_{base_name}_压缩包{output_ext}')
+
+            if archive_format == 'zip':
+                result = Function.compress_zip(input_paths, output_path, password, original_filenames)
+            elif archive_format == 'tar.gz':
+                result = Function.compress_targz(input_paths, output_path, original_filenames)
+            elif archive_format == '7z':
+                result = Function.compress_7z(input_paths, output_path, password, original_filenames)
+            result_message = '压缩成功'
+
+        elif mode == '文件解压':
+            password = request.form.get('password', '').strip() or None
+
+            # 未提供密码时检查是否加密
+            if not password and Function.is_archive_encrypted(input_paths[0]):
+                return jsonify({
+                    'need_password': True,
+                    'message': '检测到该压缩文件加密，请输入密码'
+                })
+
+            # 执行解压
+            output_dir = os.path.join(Config.OUTPUT_FOLDER, f'{task_id}_解压文件')
+            os.makedirs(output_dir, exist_ok=True)
+            result = Function.decompress_archive(input_paths[0], output_dir, password)
+
+            if result:
+                # 收集解压出的文件列表，为每个文件生成下载 URL
+                extracted_files = []
+                for root, _dirs, files in os.walk(output_dir):
+                    for f in files:
+                        rel_path = os.path.relpath(os.path.join(root, f), output_dir)
+                        # 下载路径：解压目录名/相对路径
+                        dl_path = f'{os.path.basename(output_dir)}/{rel_path}'.replace('\\', '/')
+                        dl_url = url_for('converter.download', filename=dl_path, name=f)
+                        extracted_files.append({
+                            'path': rel_path,
+                            'name': f,
+                            'download_url': dl_url
+                        })
+
+                # 打包为 ZIP 供下载
+                zip_path = os.path.join(Config.OUTPUT_FOLDER, f'{task_id}_解压文件.zip')
+                with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                    for root, _dirs, files in os.walk(output_dir):
+                        for f in files:
+                            file_path = os.path.join(root, f)
+                            arcname = os.path.relpath(file_path, output_dir)
+                            zipf.write(file_path, arcname)
+                output_path = zip_path
+                # 用变量传递 extracted_files 到结果处理
+                _extracted_files = extracted_files
+                result_message = f'解压成功，共 {len(extracted_files)} 个文件'
+            else:
+                # 如果带密码仍失败，可能是密码错误
+                if password:
+                    return jsonify({'success': False, 'message': '解压失败，密码错误或文件损坏'})
+
+        elif mode == '压缩包解密':
+            password = request.form.get('password', '').strip()
+            if not password:
+                return jsonify({'success': False, 'message': '请输入压缩包密码'})
+            if len(password) < 1:
+                return jsonify({'success': False, 'message': '请输入密码'})
+
+            output_path = os.path.join(Config.OUTPUT_FOLDER, f'{task_id}_已解密.zip')
+            result = Function.decrypt_archive(input_paths[0], output_path, password)
+            result_message = '已去除密码保护'
+
         elif input_type == 'directory':
             dir_name = os.path.basename(input_paths[0]) if input_paths else task_id
             output_path = os.path.join(
@@ -483,12 +596,22 @@ def convert():
                     result_message = '转换成功'
 
         if result:
-            # 记录成功日志
-            filename_list = ', '.join([os.path.basename(p) for p in input_paths])
+            # 记录成功日志（使用原始文件名，而非哈希后的保存路径）
+            filename_list = ', '.join(original_filenames) if original_filenames else ', '.join([os.path.basename(p) for p in input_paths])
             DatabaseManager.log_conversion(
                 session['username'], mode, filename_list, True, '转换成功',
                 output_path=output_path
             )
+
+            # 保存本次转换的文件信息（用于下次重复检测）
+            if original_filenames and input_paths:
+                session['last_file_info'] = {
+                    'name': original_filenames[0],
+                    'size': os.path.getsize(input_paths[0])
+                }
+            # 如果用户勾选了"本次不再提示"，记录到 session
+            if request.form.get('dont_ask_again'):
+                session['skip_duplicate_check'] = True
 
             remaining_times = None
             if login_type == 'times':
@@ -518,7 +641,7 @@ def convert():
             if output_basename.startswith(task_prefix):
                 display_name = output_basename[len(task_prefix):]
 
-            return jsonify({
+            resp = {
                 'success': True,
                 'message': result_message,
                 'download_url': url_for(
@@ -526,13 +649,44 @@ def convert():
                 ),
                 'display_name': display_name,
                 'remaining_times': remaining_times
-            })
+            }
+
+            # 解压模式额外返回文件列表
+            if mode == '文件解压' and result:
+                resp['extracted_files'] = _extracted_files
+                resp['file_count'] = len(_extracted_files)
+
+            return jsonify(resp)
         else:
-            filename_list = ', '.join([os.path.basename(p) for p in input_paths])
+            filename_list = ', '.join(original_filenames) if original_filenames else ', '.join([os.path.basename(p) for p in input_paths])
             DatabaseManager.log_conversion(
                 session['username'], mode, filename_list, False, '转换失败'
             )
-            return jsonify({'success': False, 'message': '转换失败，请检查文件格式或联系管理员'})
+
+            # 根据模式和上下文给出特定错误提示
+            has_password = bool(request.form.get('password', '').strip())
+            error_msgs = {
+                '文件压缩': '压缩失败，请重试',
+                '文件解压': '解压失败，文件可能已损坏' if not has_password else '解压失败，密码错误或文件损坏',
+                '压缩包解密': '密码错误，请重新输入',
+                'pdf加密': '加密失败，请检查文件是否已加密或损坏',
+                'pdf解密': '密码错误，请重新输入',
+                'word转pdf': 'Word 转 PDF 失败，请检查文件格式',
+                'pdf转word': 'PDF 转 Word 失败，请检查文件是否受保护',
+                '图片转pdf': '图片转 PDF 失败，请检查图片格式',
+                'pdf转图片': 'PDF 转图片失败，请检查文件是否损坏',
+                'csv转excel': 'CSV 转 Excel 失败，请检查文件编码',
+                'excel转csv': 'Excel 转 CSV 失败，请检查文件格式',
+                'PDF OCR识别': 'OCR 识别失败，请检查 PDF 是否可读',
+                '图片OCR识别': 'OCR 识别失败，请检查图片清晰度',
+                '图片转ppt': '图片转 PPT 失败，请检查图片格式',
+                'pdf合并': 'PDF 合并失败，请检查文件是否损坏或加密',
+                'md转pdf': 'Markdown 转 PDF 失败，请检查文件格式',
+                'excel转pdf': 'Excel 转 PDF 失败，请检查文件格式',
+                'ppt转pdf': 'PPT 转 PDF 失败，请检查文件格式',
+                'html转pdf': 'HTML 转 PDF 失败，请检查文件格式',
+            }
+            return jsonify({'success': False, 'message': error_msgs.get(mode, '转换失败，请检查文件格式或联系管理员')})
 
     except Exception as e:
         # 记录异常日志（详细信息写入服务端日志，前端只返回通用错误）
@@ -545,9 +699,9 @@ def convert():
         return jsonify({'success': False, 'message': '服务器处理出错，请稍后重试或联系管理员'})
 
 
-@converter_bp.route('/download/<filename>')
+@converter_bp.route('/download/<path:filename>')
 def download(filename):
-    """下载转换后的文件"""
+    """下载转换后的文件（支持子路径，如 taskid_解压文件/sub/file.txt）"""
     if 'username' not in session:
         return redirect(url_for('auth.login'))
 
@@ -562,7 +716,7 @@ def download(filename):
         return jsonify({'success': False, 'message': '文件不存在或已过期'})
 
     # 用 name 参数作为下载显示的文件名（去掉哈希前缀）
-    display_name = request.args.get('name') or filename
+    display_name = request.args.get('name') or os.path.basename(filename)
     return send_file(safe_path, as_attachment=True, download_name=display_name)
 
 
