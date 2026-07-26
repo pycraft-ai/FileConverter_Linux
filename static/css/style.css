@@ -1,4 +1,89 @@
 /* ========== 全局样式 ========== */
+
+/* ===== 主题变量 ===== */
+:root, [data-theme="light"] {
+    --bg-body: #f5f7fa linear-gradient(135deg, #f5f7fa, #e4e9f0, #eef1f6);
+    --bg-card: rgba(255, 255, 255, 0.92);
+    --bg-card-hover: rgba(255, 255, 255, 0.96);
+    --bg-nav: rgba(255, 255, 255, 0.97);
+    --bg-upload: rgba(255, 255, 255, 0.5);
+    --bg-upload-hover: rgba(102, 126, 234, 0.05);
+    --bg-item: rgba(0, 0, 0, 0.03);
+    --bg-item-hover: rgba(102, 126, 234, 0.08);
+    --bg-input: rgba(255, 255, 255, 0.8);
+    --bg-progress: rgba(0, 0, 0, 0.05);
+    --bg-code: #f5f5f5;
+    --text-primary: #333;
+    --text-secondary: #555;
+    --text-muted: rgba(0, 0, 0, 0.4);
+    --text-on-accent: #fff;
+    --accent: #667eea;
+    --accent-secondary: #764ba2;
+    --btn-gradient: linear-gradient(135deg, #667eea, #764ba2);
+    --btn-gradient-hover: linear-gradient(135deg, #5a6fd6, #6a4192);
+    --border-color: 1px solid rgba(0, 0, 0, 0.08);
+    --border-accent:  1px solid rgba(102, 126, 234, 0.3);
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06);
+    --shadow-hover: 0 6px 20px rgba(102, 126, 234, 0.15);
+    --shadow-accent: 0 0 15px rgba(102, 126, 234, 0.4);
+    --table-border: rgba(0, 0, 0, 0.06);
+}
+
+[data-theme="eye-care"] {
+    --bg-body: #fdf6e3 linear-gradient(135deg, #fdf6e3, #f5e6c8, #eee8d5);
+    --bg-card: rgba(253, 246, 227, 0.95);
+    --bg-card-hover: rgba(253, 246, 227, 0.98);
+    --bg-nav: rgba(253, 246, 227, 0.98);
+    --bg-upload: rgba(253, 246, 227, 0.6);
+    --bg-upload-hover: rgba(181, 137, 0, 0.05);
+    --bg-item: rgba(91, 70, 54, 0.04);
+    --bg-item-hover: rgba(181, 137, 0, 0.08);
+    --bg-input: rgba(255, 255, 255, 0.85);
+    --bg-progress: rgba(91, 70, 54, 0.08);
+    --bg-code: #eee8d5;
+    --text-primary: #5b4636;
+    --text-secondary: #7a5e4a;
+    --text-muted: rgba(91, 70, 54, 0.4);
+    --text-on-accent: #fff;
+    --accent: #b58900;
+    --accent-secondary: #cb4b16;
+    --btn-gradient: linear-gradient(135deg, #b58900, #cb4b16);
+    --btn-gradient-hover: linear-gradient(135deg, #a07800, #b8400e);
+    --border-color: 1px solid rgba(91, 70, 54, 0.1);
+    --border-accent: 1px solid rgba(181, 137, 0, 0.3);
+    --shadow-sm: 0 1px 3px rgba(91, 70, 54, 0.08);
+    --shadow-hover: 0 6px 20px rgba(181, 137, 0, 0.18);
+    --shadow-accent: 0 0 15px rgba(181, 137, 0, 0.35);
+    --table-border: rgba(91, 70, 54, 0.08);
+}
+
+[data-theme="dark"] {
+    --bg-body: #0f0c29 linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+    --bg-card: rgba(26, 26, 46, 0.95);
+    --bg-card-hover: rgba(26, 26, 46, 0.98);
+    --bg-nav: rgba(15, 12, 41, 0.98);
+    --bg-upload: rgba(26, 26, 46, 0.5);
+    --bg-upload-hover: rgba(129, 140, 248, 0.08);
+    --bg-item: rgba(255, 255, 255, 0.04);
+    --bg-item-hover: rgba(129, 140, 248, 0.1);
+    --bg-input: rgba(40, 40, 70, 0.85);
+    --bg-progress: rgba(255, 255, 255, 0.08);
+    --bg-code: #1e1e3f;
+    --text-primary: #e0e0e0;
+    --text-secondary: #a0a0c0;
+    --text-muted: rgba(200, 200, 220, 0.4);
+    --text-on-accent: #fff;
+    --accent: #818cf8;
+    --accent-secondary: #a78bfa;
+    --btn-gradient: linear-gradient(135deg, #818cf8, #a78bfa);
+    --btn-gradient-hover: linear-gradient(135deg, #6d78e8, #9670ea);
+    --border-color: 1px solid rgba(200, 200, 220, 0.1);
+    --border-accent: 1px solid rgba(129, 140, 248, 0.3);
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.2);
+    --shadow-hover: 0 6px 20px rgba(129, 140, 248, 0.2);
+    --shadow-accent: 0 0 15px rgba(129, 140, 248, 0.35);
+    --table-border: rgba(200, 200, 220, 0.08);
+}
 * {
     margin: 0;
     padding: 0;
@@ -7,9 +92,9 @@
 
 body {
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-    background: linear-gradient(135deg, #f5f7fa, #e4e9f0, #eef1f6);
+    background: var(--bg-body);
     min-height: 100vh;
-    color: #333;
+    color: var(--text-primary);
     overflow-x: hidden;
 }
 
@@ -26,15 +111,15 @@ body {
 
 /* ========== 导航栏 ========== */
 .glass-nav {
-    background: rgba(255, 255, 255, 0.95) !important;
-    border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+    background: var(--bg-nav) !important;
+    border-bottom: var(--border-color);
     z-index: 1000;
     position: relative;
 }
 
 .glass-nav .navbar-brand {
     font-weight: 700;
-    background: linear-gradient(135deg, #667eea, #764ba2);
+    background: var(--btn-gradient);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
@@ -42,7 +127,7 @@ body {
 }
 
 .nav-btn {
-    color: #555 !important;
+    color: var(--text-secondary) !important;
     border-radius: 8px;
     padding: 8px 16px !important;
     transition: all 0.3s ease;
@@ -51,7 +136,7 @@ body {
 
 .nav-btn:hover {
     background: rgba(102, 126, 234, 0.1);
-    color: #667eea !important;
+    color: var(--accent) !important;
     transform: translateY(-1px);
 }
 
@@ -61,19 +146,19 @@ body {
 }
 
 .badge-glow {
-    background: linear-gradient(135deg, #667eea, #764ba2);
-    color: #fff;
+    background: var(--btn-gradient);
+    color: var(--text-on-accent);
     padding: 2px 10px;
     border-radius: 20px;
     font-size: 11px;
     font-weight: 600;
-    box-shadow: 0 0 15px rgba(102, 126, 234, 0.4);
+    box-shadow: var(--shadow-accent);
 }
 
 /* ========== 玻璃卡片 ========== */
 .glass-card {
-    background: rgba(255, 255, 255, 0.92);
-    border: 1px solid rgba(0, 0, 0, 0.06);
+    background: var(--bg-card);
+    border: var(--border-color);
     border-radius: 16px;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
     position: relative;
@@ -94,13 +179,13 @@ body {
 .icon-circle {
     width: 70px;
     height: 70px;
-    background: linear-gradient(135deg, #667eea, #764ba2);
+    background: var(--btn-gradient);
     border-radius: 50%;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    color: #fff;
-    box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
+    color: var(--text-on-accent);
+    box-shadow: var(--shadow-accent);
     animation: float 3s ease-in-out infinite paused;
 }
 
@@ -114,7 +199,7 @@ body {
 }
 
 .gradient-text {
-    background: linear-gradient(135deg, #667eea, #764ba2);
+    background: var(--btn-gradient);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
@@ -122,28 +207,28 @@ body {
 
 /* ========== 输入框 ========== */
 .input-group-glass {
-    background: rgba(255, 255, 255, 0.8);
+    background: var(--bg-input);
     border-radius: 10px;
     overflow: hidden;
-    border: 1px solid rgba(0, 0, 0, 0.1);
+    border: var(--border-color);
     transition: all 0.3s ease;
 }
 
 .input-group-glass:focus-within {
-    border-color: #667eea;
+    border-color: var(--accent);
     box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
 }
 
 .input-group-glass .input-group-text {
     background: rgba(255, 255, 255, 0.05);
     border: none;
-    color: #667eea;
+    color: var(--accent);
 }
 
 .input-group-glass .form-control {
     background: transparent;
     border: none;
-    color: #333;
+    color: var(--text-primary);
     padding: 12px 16px;
 }
 
@@ -157,16 +242,16 @@ body {
 }
 
 .form-label {
-    color: #555;
+    color: var(--text-secondary);
     font-weight: 500;
     font-size: 0.9rem;
 }
 
 /* ========== 按钮 ========== */
 .btn-gradient {
-    background: linear-gradient(135deg, #667eea, #764ba2);
+    background: var(--btn-gradient);
     border: none;
-    color: #fff;
+    color: var(--text-on-accent);
     font-weight: 600;
     border-radius: 10px;
     padding: 12px 24px;
@@ -192,8 +277,8 @@ body {
 
 .btn-gradient:hover {
     transform: translateY(-2px);
-    box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
-    color: #fff;
+    box-shadow: var(--shadow-accent);
+    color: var(--text-on-accent);
 }
 
 .btn-gradient:active {
@@ -201,7 +286,7 @@ body {
 }
 
 .link-gradient {
-    background: linear-gradient(135deg, #667eea, #764ba2);
+    background: var(--btn-gradient);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
@@ -223,13 +308,13 @@ body {
 .user-avatar {
     width: 50px;
     height: 50px;
-    background: linear-gradient(135deg, #667eea, #764ba2);
+    background: var(--btn-gradient);
     border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
-    color: #fff;
-    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+    color: var(--text-on-accent);
+    box-shadow: var(--shadow-hover);
 }
 
 .remaining-badge {
@@ -240,12 +325,12 @@ body {
     padding: 10px 20px;
     border-radius: 12px;
     font-size: 0.95rem;
-    color: #667eea;
+    color: var(--accent);
     transition: all 0.3s ease;
 }
 
 .remaining-badge strong {
-    color: #333;
+    color: var(--text-primary);
     font-size: 1.1rem;
 }
 
@@ -253,12 +338,12 @@ body {
 .section-icon {
     width: 36px;
     height: 36px;
-    background: linear-gradient(135deg, #667eea, #764ba2);
+    background: var(--btn-gradient);
     border-radius: 10px;
     display: flex;
     align-items: center;
     justify-content: center;
-    color: #fff;
+    color: var(--text-on-accent);
     font-size: 0.9rem;
 }
 
@@ -272,12 +357,12 @@ body {
     align-items: center;
     padding: 12px 8px !important;
     background: rgba(255, 255, 255, 0.6);
-    border: 1px solid rgba(0, 0, 0, 0.08) !important;
+    border: var(--border-color) !important;
     border-radius: 12px !important;
     cursor: pointer;
     transition: all 0.3s ease;
     width: 100%;
-    color: #555 !important;
+    color: var(--text-secondary) !important;
 }
 
 .mode-label:hover {
@@ -288,15 +373,15 @@ body {
 
 .btn-check:checked + .mode-label {
     background: linear-gradient(135deg, rgba(102, 126, 234, 0.2), rgba(118, 75, 162, 0.2));
-    border-color: #667eea !important;
-    color: #333 !important;
+    border-color: var(--accent) !important;
+    color: var(--text-primary) !important;
     box-shadow: 0 0 20px rgba(102, 126, 234, 0.2);
 }
 
 .mode-icon {
     font-size: 1.3rem;
     margin-bottom: 4px;
-    color: #667eea;
+    color: var(--accent);
 }
 
 .btn-check:checked + .mode-label .mode-icon {
@@ -312,7 +397,7 @@ body {
 
 /* ========== 上传区域 ========== */
 .upload-zone {
-    background: rgba(255, 255, 255, 0.5);
+    background: var(--bg-upload);
     border: 2px dashed rgba(0, 0, 0, 0.15);
     border-radius: 16px;
     padding: 20px;
@@ -321,12 +406,12 @@ body {
 }
 
 .upload-zone:hover, .upload-zone.drag-over {
-    border-color: #667eea;
-    background: rgba(102, 126, 234, 0.05);
+    border-color: var(--accent);
+    background: var(--bg-upload-hover);
 }
 
 .upload-icon {
-    color: #667eea;
+    color: var(--accent);
     animation: float 3s ease-in-out infinite;
 }
 
@@ -336,7 +421,7 @@ body {
 }
 
 .file-item {
-    background: rgba(255, 255, 255, 0.5);
+    background: var(--bg-upload);
     border-radius: 8px;
     padding: 8px 12px;
     margin-bottom: 4px;
@@ -345,29 +430,29 @@ body {
 }
 
 .file-item:hover {
-    background: rgba(102, 126, 234, 0.08);
+    background: var(--bg-item-hover);
 }
 
 .file-name {
-    color: #333;
+    color: var(--text-primary);
 }
 
 .file-size {
-    color: rgba(0, 0, 0, 0.4);
+    color: var(--text-muted);
     font-size: 0.8rem;
 }
 
 /* ========== 进度条 ========== */
 .glass-progress {
     height: 30px;
-    background: rgba(0, 0, 0, 0.05);
+    background: var(--bg-progress);
     border-radius: 15px;
     overflow: hidden;
     border: 1px solid rgba(0, 0, 0, 0.05);
 }
 
 .glass-progress .progress-bar {
-    background: linear-gradient(135deg, #667eea, #764ba2);
+    background: var(--btn-gradient);
     font-weight: 600;
     font-size: 0.85rem;
     line-height: 30px;
@@ -402,10 +487,10 @@ body {
 /* ========== 表格（管理面板） ========== */
 .table-dark {
     --bs-table-bg: transparent;
-    --bs-table-color: #333;
-    --bs-table-hover-bg: rgba(102, 126, 234, 0.05);
-    --bs-table-border-color: rgba(0, 0, 0, 0.06);
-    color: #333;
+    --bs-table-color: var(--text-primary);
+    --bs-table-hover-bg: var(--bg-upload-hover);
+    --bs-table-border-color: var(--table-border);
+    color: var(--text-primary);
 }
 
 .table-header-row th {
@@ -452,16 +537,16 @@ body {
 }
 
 .modal-content .form-control {
-    background: rgba(255, 255, 255, 0.8);
-    border: 1px solid rgba(0, 0, 0, 0.1);
-    color: #333;
+    background: var(--bg-input);
+    border: var(--border-color);
+    color: var(--text-primary);
     border-radius: 10px;
     padding: 10px 14px;
 }
 
 .modal-content .form-control:focus {
     background: rgba(255, 255, 255, 1);
-    border-color: #667eea;
+    border-color: var(--accent);
     box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
 }
 
@@ -541,8 +626,8 @@ body {
 
 .login-type-option .form-check-input:checked + .form-check-label {
     background: linear-gradient(135deg, rgba(102, 126, 234, 0.2), rgba(118, 75, 162, 0.2));
-    border-color: #667eea;
-    color: #333;
+    border-color: var(--accent);
+    color: var(--text-primary);
 }
 
 .login-type-option .form-check-label:hover {
@@ -584,7 +669,7 @@ body {
 
 .announcement-card {
     margin-bottom: 15px;
-    border-left: 4px solid #667eea;
+    border-left: 4px solid var(--accent);
     animation: slideDown 0.5s ease;
 }
 
@@ -630,19 +715,19 @@ body {
 .announcement-title {
     font-size: 1.1rem;
     font-weight: 600;
-    color: #333;
+    color: var(--text-primary);
     margin: 0 0 3px 0;
 }
 
 .announcement-time {
-    color: rgba(0, 0, 0, 0.4);
+    color: var(--text-muted);
     font-size: 0.85rem;
 }
 
 .announcement-close {
     background: none;
     border: none;
-    color: rgba(0, 0, 0, 0.4);
+    color: var(--text-muted);
     cursor: pointer;
     padding: 5px;
     transition: all 0.3s ease;
@@ -650,12 +735,12 @@ body {
 }
 
 .announcement-close:hover {
-    color: #333;
+    color: var(--text-primary);
     background: rgba(0, 0, 0, 0.05);
 }
 
 .announcement-content {
-    color: #555;
+    color: var(--text-secondary);
     line-height: 1.6;
     padding-left: 40px;
 }
@@ -663,7 +748,7 @@ body {
 /* 欢迎横幅 */
 .welcome-banner {
     background: linear-gradient(135deg, rgba(102, 126, 234, 0.15), rgba(118, 75, 162, 0.15));
-    border: 1px solid rgba(102, 126, 234, 0.3);
+    border: var(--border-accent);
     border-radius: 20px;
     padding: 40px;
     margin-bottom: 30px;
@@ -688,8 +773,8 @@ body {
 
 /* 玻璃效果卡片（移除 blur 以提升滚动流畅度） */
 .glass-effect {
-    background: rgba(255, 255, 255, 0.9);
-    border: 1px solid rgba(0, 0, 0, 0.06);
+    background: var(--bg-card);
+    border: var(--border-color);
     border-radius: 20px;
     padding: 25px;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
@@ -698,7 +783,7 @@ body {
 
 .glass-effect:hover {
     transform: translateY(-2px);
-    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.15);
+    box-shadow: var(--shadow-hover);
     border-color: rgba(102, 126, 234, 0.3);
 }
 
@@ -723,14 +808,14 @@ body {
 .user-avatar {
     width: 60px;
     height: 60px;
-    background: linear-gradient(135deg, #667eea, #764ba2);
+    background: var(--btn-gradient);
     border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
     font-size: 1.8rem;
-    color: white;
-    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+    color: var(--text-on-accent);
+    box-shadow: var(--shadow-accent);
 }
 
 .status-indicator {
@@ -756,7 +841,7 @@ body {
     font-size: 1.3rem;
     font-weight: 600;
     margin: 0 0 5px 0;
-    color: #333;
+    color: var(--text-primary);
 }
 
 .user-role {
@@ -790,7 +875,7 @@ body {
 }
 
 .time-stat {
-    border-left: 3px solid #667eea;
+    border-left: 3px solid var(--accent);
 }
 
 .stat-icon {
@@ -802,7 +887,7 @@ body {
     align-items: center;
     justify-content: center;
     font-size: 1.5rem;
-    color: #667eea;
+    color: var(--accent);
 }
 
 .times-stat .stat-icon {
@@ -817,7 +902,7 @@ body {
 .stat-value {
     font-size: 1.8rem;
     font-weight: 700;
-    color: #333;
+    color: var(--text-primary);
     line-height: 1;
     margin-bottom: 5px;
 }
@@ -855,7 +940,7 @@ body {
     align-items: center;
     gap: 5px;
     font-size: 0.9rem;
-    color: #555;
+    color: var(--text-secondary);
 }
 
 .btn-action i {
@@ -875,12 +960,12 @@ body {
 
 .btn-action.admin {
     background: rgba(102, 126, 234, 0.1);
-    border: 1px solid rgba(102, 126, 234, 0.3);
+    border: var(--border-accent);
 }
 
 .btn-action.admin:hover {
     background: rgba(102, 126, 234, 0.2);
-    color: #667eea;
+    color: var(--accent);
     transform: translateY(-2px);
 }
 
@@ -893,7 +978,7 @@ body {
     font-size: 1.1rem;
     font-weight: 600;
     margin-bottom: 15px;
-    color: #333;
+    color: var(--text-primary);
 }
 
 .tips-list {
@@ -906,7 +991,7 @@ body {
     padding: 8px 0;
     color: rgba(0, 0, 0, 0.6);
     font-size: 0.9rem;
-    border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+    border-bottom: var(--border-color);
 }
 
 .tips-list li:last-child {
@@ -931,12 +1016,12 @@ body {
     font-size: 1.3rem;
     font-weight: 600;
     margin: 0;
-    color: #333;
+    color: var(--text-primary);
 }
 
 .badge-mode-count {
-    background: linear-gradient(135deg, #667eea, #764ba2);
-    color: white;
+    background: var(--btn-gradient);
+    color: var(--text-on-accent);
     padding: 5px 12px;
     border-radius: 20px;
     font-size: 0.85rem;
@@ -991,8 +1076,8 @@ body {
 
 .mode-radio:checked + .mode-label {
     background: linear-gradient(135deg, rgba(102, 126, 234, 0.15), rgba(118, 75, 162, 0.15));
-    border-color: #667eea;
-    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+    border-color: var(--accent);
+    box-shadow: var(--shadow-hover);
 }
 
 .mode-icon-wrapper {
@@ -1009,14 +1094,14 @@ body {
 }
 
 .mode-radio:checked + .mode-label .mode-icon-wrapper {
-    background: linear-gradient(135deg, #667eea, #764ba2);
-    color: white;
+    background: var(--btn-gradient);
+    color: var(--text-on-accent);
     transform: scale(1.1);
 }
 
 .mode-name {
     font-size: 0.85rem;
-    color: #555;
+    color: var(--text-secondary);
     text-align: center;
     font-weight: 500;
 }
@@ -1027,12 +1112,12 @@ body {
     right: 8px;
     width: 20px;
     height: 20px;
-    background: #667eea;
+    background: var(--accent);
     border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
-    color: white;
+    color: var(--text-on-accent);
     font-size: 0.7rem;
     opacity: 0;
     transform: scale(0);
@@ -1072,7 +1157,7 @@ body {
 
 .upload-area:hover {
     border-color: rgba(102, 126, 234, 0.6);
-    background: rgba(102, 126, 234, 0.05);
+    background: var(--bg-upload-hover);
 }
 
 .upload-animation {
@@ -1081,7 +1166,7 @@ body {
 
 .cloud-icon {
     font-size: 4rem;
-    color: #667eea;
+    color: var(--accent);
     margin-bottom: 15px;
     animation: float 3s ease-in-out infinite;
 }
@@ -1113,7 +1198,7 @@ body {
 .upload-title {
     font-size: 1.3rem;
     font-weight: 600;
-    color: #333;
+    color: var(--text-primary);
     margin-bottom: 8px;
 }
 
@@ -1127,9 +1212,9 @@ body {
 }
 
 .btn-select-file {
-    background: linear-gradient(135deg, #667eea, #764ba2);
+    background: var(--btn-gradient);
     border: none;
-    color: white;
+    color: var(--text-on-accent);
     padding: 12px 30px;
     border-radius: 12px;
     font-size: 1rem;
@@ -1162,13 +1247,13 @@ body {
 
 .file-list-header h6 {
     margin: 0;
-    color: #333;
+    color: var(--text-primary);
     font-weight: 600;
 }
 
 .file-count {
     background: rgba(102, 126, 234, 0.2);
-    color: #667eea;
+    color: var(--accent);
     padding: 4px 12px;
     border-radius: 20px;
     font-size: 0.85rem;
@@ -1213,7 +1298,7 @@ body {
 }
 
 .file-name {
-    color: #333;
+    color: var(--text-primary);
     font-weight: 500;
     margin-bottom: 3px;
     overflow: hidden;
@@ -1222,7 +1307,7 @@ body {
 }
 
 .file-size {
-    color: rgba(0, 0, 0, 0.4);
+    color: var(--text-muted);
     font-size: 0.85rem;
 }
 
@@ -1233,9 +1318,9 @@ body {
 }
 
 .btn-convert {
-    background: linear-gradient(135deg, #667eea, #764ba2);
+    background: var(--btn-gradient);
     border: none;
-    color: white;
+    color: var(--text-on-accent);
     padding: 15px 50px;
     border-radius: 15px;
     font-size: 1.1rem;
@@ -1313,7 +1398,7 @@ body {
 }
 
 .progress-text {
-    color: white;
+    color: var(--text-on-accent);
     font-weight: 600;
     font-size: 0.95rem;
     text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
@@ -1345,7 +1430,7 @@ body {
 .btn-download {
     background: linear-gradient(135deg, #10b981, #059669);
     border: none;
-    color: white;
+    color: var(--text-on-accent);
     padding: 15px 40px;
     border-radius: 15px;
     font-size: 1.1rem;
@@ -1360,7 +1445,7 @@ body {
 .btn-download:hover {
     transform: translateY(-3px);
     box-shadow: 0 10px 30px rgba(16, 185, 129, 0.4);
-    color: white;
+    color: var(--text-on-accent);
 }
 
 /* Toast 自定义 */
@@ -1376,7 +1461,7 @@ body {
     display: flex;
     align-items: center;
     gap: 12px;
-    color: white;
+    color: var(--text-on-accent);
     font-weight: 500;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
     z-index: 9999;
@@ -1409,12 +1494,12 @@ body {
 }
 
 .toast-close:hover {
-    color: white;
+    color: var(--text-on-accent);
 }
 
 /* 拖拽状态 */
 .drag-over {
-    border-color: #667eea !important;
+    border-color: var(--accent) !important;
     background: rgba(102, 126, 234, 0.1) !important;
 }
 

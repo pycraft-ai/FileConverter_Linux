@@ -14,7 +14,7 @@ from pdfminer.high_level import extract_text
 from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE
 from pptx.util import Inches
-from PyPDF2 import PdfMerger
+from PyPDF2 import PdfMerger, PdfReader, PdfWriter
 
 
 # ========================
@@ -517,4 +517,57 @@ img {{ max-width: 100%; }}
             return True
         except Exception as e:
             print(f"合并PDF失败: {e}")
+            return False
+
+    @staticmethod
+    def pdf_encrypt(pdfPath, outputPath, password):
+        """PDF 加密：设置打开密码保护"""
+        try:
+            reader = PdfReader(pdfPath)
+            if reader.is_encrypted:
+                print("PDF已加密，请先解密后再加密")
+                return False
+
+            writer = PdfWriter()
+            for page in reader.pages:
+                writer.add_page(page)
+
+            # 复制元数据
+            if reader.metadata:
+                writer.add_metadata(reader.metadata)
+
+            writer.encrypt(user_password=password)
+
+            with open(outputPath, 'wb') as f:
+                writer.write(f)
+            return True
+        except Exception as e:
+            print(f"PDF加密失败: {e}")
+            return False
+
+    @staticmethod
+    def pdf_decrypt(pdfPath, outputPath, password):
+        """PDF 解密：去除密码保护"""
+        try:
+            reader = PdfReader(pdfPath)
+
+            if reader.is_encrypted:
+                result = reader.decrypt(password)
+                if result == 0:
+                    print("PDF解密失败：密码错误")
+                    return False
+
+            writer = PdfWriter()
+            for page in reader.pages:
+                writer.add_page(page)
+
+            # 复制元数据
+            if reader.metadata:
+                writer.add_metadata(reader.metadata)
+
+            with open(outputPath, 'wb') as f:
+                writer.write(f)
+            return True
+        except Exception as e:
+            print(f"PDF解密失败: {e}")
             return False

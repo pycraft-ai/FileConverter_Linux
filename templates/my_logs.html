@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block title %}转换记录 - 文件转化工具{% endblock %}
+{% block content %}
+<style>
+.main-wrap { max-width: 900px; margin: 0 auto; }
+.page-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 20px;
+}
+.page-title { font-size: 20px; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 10px; }
+.page-title i { color: var(--accent); }
+.total-badge { font-size: 13px; color: var(--text-muted); background: var(--bg-item); padding: 4px 12px; border-radius: 20px; }
+.log-table { width: 100%; border-collapse: collapse; }
+.log-table th {
+    text-align: left; padding: 10px 14px; font-size: 12px; font-weight: 600;
+    color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px;
+    border-bottom: var(--border-color); background: var(--bg-item);
+}
+.log-table td { padding: 12px 14px; font-size: 13px; color: var(--text-primary); border-bottom: var(--border-color); }
+.log-table tr:hover td { background: var(--bg-item-hover); }
+.log-status { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 500; }
+.log-status.success { color: #10b981; }
+.log-status.error { color: #ef4444; }
+.log-mode { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; background: var(--bg-item); color: var(--text-secondary); }
+.log-time { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
+.log-filename { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.btn-dl-sm {
+    display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px;
+    background: #10b981; color: #fff; border-radius: 6px; text-decoration: none;
+    font-size: 12px; font-weight: 500; transition: all .2s;
+}
+.btn-dl-sm:hover { background: #059669; color: #fff; }
+.btn-dl-sm.disabled { background: var(--bg-item); color: var(--text-muted); pointer-events: none; }
+.empty-state { text-align: center; padding: 60px 20px; color: var(--text-muted); }
+.empty-state i { font-size: 48px; margin-bottom: 12px; opacity: .4; }
+.pagination { display: flex; justify-content: center; gap: 6px; margin-top: 20px; }
+.pagination a, .pagination span {
+    padding: 6px 14px; border-radius: 8px; font-size: 13px;
+    text-decoration: none; transition: all .2s;
+}
+.pagination a { background: var(--bg-item); color: var(--text-secondary); }
+.pagination a:hover { background: var(--accent); color: #fff; }
+.pagination .active { background: var(--accent); color: #fff; font-weight: 600; }
+</style>
+
+<div class="main-wrap">
+    <div class="page-header">
+        <div class="page-title">
+            <i class="fas fa-history"></i> 我的转换记录
+        </div>
+        <span class="total-badge"><i class="fas fa-list me-1"></i>共 {{ total }} 条</span>
+    </div>
+
+    {% if logs %}
+    <div style="background:var(--bg-card);border-radius:14px;overflow:hidden;border:var(--border-color);box-shadow:var(--shadow-sm);">
+        <table class="log-table">
+            <thead>
+                <tr>
+                    <th>时间</th>
+                    <th>模式</th>
+                    <th>文件</th>
+                    <th>状态</th>
+                    <th style="text-align:center;">操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for log in logs %}
+                <tr>
+                    <td><span class="log-time">{{ log['operation_time'] }}</span></td>
+                    <td><span class="log-mode">{{ log['mode'] }}</span></td>
+                    <td><span class="log-filename" title="{{ log['filename'] }}">{{ log['filename'] }}</span></td>
+                    <td>
+                        {% if log['success'] %}
+                        <span class="log-status success"><i class="fas fa-check-circle"></i> 成功</span>
+                        {% else %}
+                        <span class="log-status error"><i class="fas fa-times-circle"></i> 失败</span>
+                        {% endif %}
+                    </td>
+                    <td style="text-align:center;">
+                        {% if log['success'] and log['file_exists'] and log['output_path'] %}
+                        {% set dl_filename = log['output_path'].split('/')[-1] %}
+                        <a class="btn-dl-sm" href="{{ url_for('converter.download', filename=dl_filename) }}">
+                            <i class="fas fa-download"></i> 下载
+                        </a>
+                        {% elif log['success'] %}
+                        <span class="btn-dl-sm disabled"><i class="fas fa-clock"></i> 已过期</span>
+                        {% else %}
+                        <span style="color:var(--text-muted);font-size:12px;">—</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {% if total_pages > 1 %}
+    <div class="pagination">
+        {% if page > 1 %}
+        <a href="{{ url_for('converter.my_logs', page=page-1) }}"><i class="fas fa-chevron-left"></i></a>
+        {% endif %}
+        {% for p in range(1, total_pages + 1) %}
+            {% if p == page %}
+            <span class="active">{{ p }}</span>
+            {% elif p <= 3 or p > total_pages - 3 or (p >= page - 2 and p <= page + 2) %}
+            <a href="{{ url_for('converter.my_logs', page=p) }}">{{ p }}</a>
+            {% elif p == page - 3 or p == page + 3 %}
+            <span style="color:var(--text-muted);">…</span>
+            {% endif %}
+        {% endfor %}
+        {% if page < total_pages %}
+        <a href="{{ url_for('converter.my_logs', page=page+1) }}"><i class="fas fa-chevron-right"></i></a>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {% else %}
+    <div class="empty-state">
+        <i class="fas fa-inbox"></i>
+        <p style="font-size:15px;font-weight:500;">暂无转换记录</p>
+        <p style="font-size:13px;">使用文件转换功能后，记录会显示在这里</p>
+        <a href="{{ url_for('converter.index') }}" class="btn btn-sm" style="margin-top:12px;display:inline-block;background:var(--accent);color:#fff;padding:8px 20px;border-radius:8px;text-decoration:none;font-weight:500;">
+            <i class="fas fa-exchange-alt me-1"></i>去转换文件
+        </a>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

@@ -11,9 +11,16 @@ from routes.auth import auth_bp
 from routes.converter import converter_bp
 from routes.admin import admin_bp
 
+import dotenv
+
+_env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
+dotenv.load_dotenv(_env_path)
+
+
 app = Flask(__name__)
 app.config.from_object(Config)
 app.config['SECRET_KEY'] = Config.SECRET_KEY
+app.config['PREFERRED_URL_SCHEME'] = 'https'  # Cloudflare 代理下保证 URL 正确
 
 # 注册蓝图
 app.register_blueprint(auth_bp)
