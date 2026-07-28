@@ -1764,6 +1764,336 @@ class DatabaseManager:
                 DatabaseManager.return_connection(conn)
         return 0
 
+    # ========================
+    # 仪表盘统计
+    # ========================
+
+    @staticmethod
+    def get_user_dashboard_stats(username, mode_filter=None):
+        """获取用户仪表盘统计数据"""
+        conn = None
+        try:
+            conn = DatabaseManager.get_connection()
+            if conn:
+                cursor = conn.cursor(dictionary=True)
+
+                # 总体统计
+                if mode_filter:
+                    cursor.execute(
+                        """SELECT
+                            COUNT(*) as total,
+                            SUM(CASE WHEN success = TRUE THEN 1 ELSE 0 END) as success_count,
+                            SUM(CASE WHEN success = FALSE THEN 1 ELSE 0 END) as fail_count
+                        FROM conversion_logs
+                        WHERE username = %s AND mode = %s""",
+                        (username, mode_filter)
+                    )
+                else:
+                    cursor.execute(
+                        """SELECT
+                            COUNT(*) as total,
+                            SUM(CASE WHEN success = TRUE THEN 1 ELSE 0 END) as success_count,
+                            SUM(CASE WHEN success = FALSE THEN 1 ELSE 0 END) as fail_count
+                        FROM conversion_logs
+                        WHERE username = %s""",
+                        (username,)
+                    )
+                stats = cursor.fetchone()
+                if stats is None:
+                    stats = {'total': 0, 'success_count': 0, 'fail_count': 0}
+
+                # 按模式分组统计
+                if mode_filter:
+                    cursor.execute(
+                        """SELECT mode,
+                            COUNT(*) as count,
+                            SUM(CASE WHEN success = TRUE THEN 1 ELSE 0 END) as success_count,
+                            SUM(CASE WHEN success = FALSE THEN 1 ELSE 0 END) as fail_count
+                        FROM conversion_logs
+                        WHERE username = %s AND mode = %s
+                        GROUP BY mode
+                        ORDER BY count DESC""",
+                        (username, mode_filter)
+                    )
+                else:
+                    cursor.execute(
+                        """SELECT mode,
+                            COUNT(*) as count,
+                            SUM(CASE WHEN success = TRUE THEN 1 ELSE 0 END) as success_count,
+                            SUM(CASE WHEN success = FALSE THEN 1 ELSE 0 END) as fail_count
+                        FROM conversion_logs
+                        WHERE username = %s
+                        GROUP BY mode
+                        ORDER BY count DESC""",
+                        (username,)
+                    )
+                by_mode = cursor.fetchall()
+
+                cursor.close()
+                return True, stats, by_mode
+        except Error as e:
+            logger.error("获取用户仪表盘统计失败: %s", e)
+            return False, None, []
+        finally:
+            if conn:
+                DatabaseManager.return_connection(conn)
+        return False, None, []
+
+    @staticmethod
+    def get_conversion_trend(days=7, username=None):
+        """获取转换趋势（按天统计）"""
+        conn = None
+        try:
+            conn = DatabaseManager.get_connection()
+            if conn:
+                cursor = conn.cursor(dictionary=True)
+                if username:
+                    cursor.execute(
+                        """SELECT DATE(operation_time) as day,
+                                COUNT(*) as total,
+                                SUM(CASE WHEN success = TRUE THEN 1 ELSE 0 END) as success_count,
+                                SUM(CASE WHEN success = FALSE THEN 1 ELSE 0 END) as fail_count
+                        FROM conversion_logs
+                        WHERE username = %s AND operation_time >= DATE_SUB(CURDATE(), INTERVAL %s DAY)
+                        GROUP BY DATE(operation_time)
+                        ORDER BY day ASC""",
+                        (username, days)
+                    )
+                else:
+                    cursor.execute(
+                        """SELECT DATE(operation_time) as day,
+                                COUNT(*) as total,
+                                SUM(CASE WHEN success = TRUE THEN 1 ELSE 0 END) as success_count,
+                                SUM(CASE WHEN success = FALSE THEN 1 ELSE 0 END) as fail_count
+                        FROM conversion_logs
+                        WHERE operation_time >= DATE_SUB(CURDATE(), INTERVAL %s DAY)
+                        GROUP BY DATE(operation_time)
+                        ORDER BY day ASC""",
+                        (days,)
+                    )
+                trend = cursor.fetchall()
+                for t in trend:
+                    if t.get('day'):
+                        t['day'] = str(t['day'])
+                cursor.close()
+                return True, trend
+        except Error as e:
+            logger.error("获取转换趋势失败: %s", e)
+            return False, []
+        finally:
+            if conn:
+                DatabaseManager.return_connection(conn)
+        return False, []
+
+    @staticmethod
+    def get_all_modes():
+        """获取所有出现过的转换模式列表"""
+        conn = None
+        try:
+            conn = DatabaseManager.get_connection()
+            if conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT DISTINCT mode FROM conversion_logs ORDER BY mode"
+                )
+                modes = [row[0] for row in cursor.fetchall()]
+                cursor.close()
+                return modes
+        except Error as e:
+            logger.error("获取模式列表失败: %s", e)
+        finally:
+            if conn:
+                DatabaseManager.return_connection(conn)
+        return []
+
+    @staticmethod
+    def get_weekly_stats():
+        """获取本周（周一到周日）转换统计"""
+        conn = None
+        try:
+            conn = DatabaseManager.get_connection()
+            if conn:
+                cursor = conn.cursor(dictionary=True)
+                cursor.execute(
+                    """SELECT
+                        COUNT(*) as total,
+                        SUM(CASE WHEN success = TRUE THEN 1 ELSE 0 END) as success_count,
+                        SUM(CASE WHEN success = FALSE THEN 1 ELSE 0 END) as fail_count,
+                        COUNT(DISTINCT username) as active_users
+                    FROM conversion_logs
+                    WHERE operation_time >= DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY)"""
+                )
+                weekly = cursor.fetchone()
+                cursor.close()
+                if weekly is None:
+                    weekly = {'total': 0, 'success_count': 0, 'fail_count': 0, 'active_users': 0}
+                return True, weekly
+        except Error as e:
+            logger.error("获取本周统计失败: %s", e)
+            return False, None
+        finally:
+            if conn:
+                DatabaseManager.return_connection(conn)
+        return False, None
+
+    @staticmethod
+    def get_storage_stats():
+        """获取存储空间占用概览（uploads + outputs 目录）"""
+        # 使用 du 命令（Linux）计算目录大小，比遍历更快
+        def _get_dir_size_du(path):
+            try:
+                result = subprocess.run(
+                    ['du', '-sb', path], capture_output=True, text=True, timeout=10
+                )
+                if result.returncode == 0:
+                    return int(result.stdout.split()[0])
+            except Exception:
+                pass
+            return 0
+
+        def _get_dir_size_walk(path):
+            """fallback: os.walk 遍历计算"""
+            total = 0
+            try:
+                for dirpath, _dirnames, filenames in os.walk(path):
+                    for f in filenames:
+                        try:
+                            total += os.path.getsize(os.path.join(dirpath, f))
+                        except OSError:
+                            pass
+            except Exception:
+                pass
+            return total
+
+        def _count_files(path):
+            """统计文件数"""
+            count = 0
+            try:
+                for dirpath, _dirnames, filenames in os.walk(path):
+                    count += len(filenames)
+            except Exception:
+                pass
+            return count
+
+        uploads_dir = Config.UPLOAD_FOLDER
+        outputs_dir = Config.OUTPUT_FOLDER
+
+        uploads_size = _get_dir_size_du(uploads_dir) or _get_dir_size_walk(uploads_dir)
+        outputs_size = _get_dir_size_du(outputs_dir) or _get_dir_size_walk(outputs_dir)
+        uploads_count = _count_files(uploads_dir)
+        outputs_count = _count_files(outputs_dir)
+
+        return {
+            'uploads_size': uploads_size,
+            'outputs_size': outputs_size,
+            'total_size': uploads_size + outputs_size,
+            'uploads_count': uploads_count,
+            'outputs_count': outputs_count,
+            'total_count': uploads_count + outputs_count
+        }
+
+    @staticmethod
+    def get_admin_dashboard_stats():
+        """获取管理员仪表盘全局统计"""
+        conn = None
+        try:
+            conn = DatabaseManager.get_connection()
+            if conn:
+                cursor = conn.cursor(dictionary=True)
+
+                # 用户总数
+                cursor.execute("SELECT COUNT(*) as total FROM users")
+                total_users = cursor.fetchone()['total']
+
+                # 今日活跃用户数
+                cursor.execute(
+                    """SELECT COUNT(DISTINCT username) as active
+                    FROM conversion_logs
+                    WHERE DATE(operation_time) = CURDATE()"""
+                )
+                today_active = cursor.fetchone()['active']
+
+                # 总转换次数
+                cursor.execute("SELECT COUNT(*) as total FROM conversion_logs")
+                total_conversions = cursor.fetchone()['total']
+
+                # 今日转换次数
+                cursor.execute(
+                    """SELECT COUNT(*) as today_total,
+                            SUM(CASE WHEN success = TRUE THEN 1 ELSE 0 END) as today_success,
+                            SUM(CASE WHEN success = FALSE THEN 1 ELSE 0 END) as today_fail
+                    FROM conversion_logs
+                    WHERE DATE(operation_time) = CURDATE()"""
+                )
+                today_stats = cursor.fetchone()
+
+                # 成功总数
+                cursor.execute(
+                    "SELECT COUNT(*) as total FROM conversion_logs WHERE success = TRUE"
+                )
+                total_success = cursor.fetchone()['total']
+
+                # 本周转换统计
+                cursor.execute(
+                    """SELECT COUNT(*) as weekly_total,
+                            SUM(CASE WHEN success = TRUE THEN 1 ELSE 0 END) as weekly_success,
+                            SUM(CASE WHEN success = FALSE THEN 1 ELSE 0 END) as weekly_fail
+                    FROM conversion_logs
+                    WHERE operation_time >= DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY)"""
+                )
+                weekly_stats = cursor.fetchone()
+
+                # 按模式统计（Top 10）
+                cursor.execute(
+                    """SELECT mode, COUNT(*) as count
+                    FROM conversion_logs
+                    GROUP BY mode
+                    ORDER BY count DESC
+                    LIMIT 10"""
+                )
+                by_mode = cursor.fetchall()
+
+                # 按用户统计（Top 10）
+                cursor.execute(
+                    """SELECT username, COUNT(*) as count
+                    FROM conversion_logs
+                    GROUP BY username
+                    ORDER BY count DESC
+                    LIMIT 10"""
+                )
+                by_user = cursor.fetchall()
+
+                cursor.close()
+
+                today_total = today_stats['today_total'] or 0
+                today_success = today_stats['today_success'] or 0
+                today_fail = today_stats['today_fail'] or 0
+                weekly_total = weekly_stats['weekly_total'] or 0
+                weekly_success = weekly_stats['weekly_success'] or 0
+                weekly_fail = weekly_stats['weekly_fail'] or 0
+
+                return True, {
+                    'total_users': total_users,
+                    'today_active': today_active,
+                    'total_conversions': total_conversions,
+                    'total_success': total_success,
+                    'today_total': today_total,
+                    'today_success': today_success,
+                    'today_fail': today_fail,
+                    'weekly_total': weekly_total,
+                    'weekly_success': weekly_success,
+                    'weekly_fail': weekly_fail,
+                    'by_mode': by_mode,
+                    'by_user': by_user
+                }
+        except Error as e:
+            logger.error("获取管理员仪表盘统计失败: %s", e)
+            return False, None
+        finally:
+            if conn:
+                DatabaseManager.return_connection(conn)
+        return False, None
+
 
 # ==============================
 # 常量时间字符串比较（防时序攻击）

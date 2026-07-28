@@ -21,16 +21,71 @@ def admin_panel():
         flash('管理员权限不足', 'error')
         return redirect(url_for('converter.index'))
 
+    # 获取仪表盘统计
+    stats_success, stats = DatabaseManager.get_admin_dashboard_stats()
+    trend_success, trend = DatabaseManager.get_conversion_trend(days=7)
+    storage = DatabaseManager.get_storage_stats()
+
+    # 获取用户列表
     success, users = DatabaseManager.get_all_users()
     if success:
-        # 处理 datetime 对象为字符串
         for user in users:
             if user.get('expiration_date'):
                 user['expiration_date'] = str(user['expiration_date'])
-        return render_template('admin.html', users=users)
-    else:
-        flash('获取用户列表失败', 'error')
-        return render_template('admin.html', users=[])
+
+    return render_template(
+        'admin.html',
+        users=users if success else [],
+        stats=stats if stats_success else None,
+        trend=trend if trend_success else [],
+        storage=storage
+    )
+
+
+@admin_bp.route('/admin/dashboard')
+def admin_dashboard():
+    """管理员仪表盘页面（全屏图表视图）"""
+    if 'username' not in session or not session.get('is_admin'):
+        flash('管理员权限不足', 'error')
+        return redirect(url_for('converter.index'))
+
+    stats_success, stats = DatabaseManager.get_admin_dashboard_stats()
+    trend_success, trend = DatabaseManager.get_conversion_trend(days=7)
+    modes = DatabaseManager.get_all_modes()
+
+    return render_template(
+        'admin_dashboard.html',
+        stats=stats if stats_success else None,
+        trend=trend if trend_success else [],
+        all_modes=modes
+    )
+
+
+@admin_bp.route('/admin/api/dashboard_stats')
+def api_dashboard_stats():
+    """API: 获取仪表盘统计数据"""
+    if 'username' not in session or not session.get('is_admin'):
+        return jsonify({'success': False, 'message': '权限不足'})
+
+    days = request.args.get('days', 7, type=int)
+    stats_success, stats = DatabaseManager.get_admin_dashboard_stats()
+    trend_success, trend = DatabaseManager.get_conversion_trend(days=days)
+
+    return jsonify({
+        'success': stats_success and trend_success,
+        'stats': stats,
+        'trend': trend
+    })
+
+
+@admin_bp.route('/admin/api/storage_stats')
+def api_storage_stats():
+    """API: 获取存储空间统计"""
+    if 'username' not in session or not session.get('is_admin'):
+        return jsonify({'success': False, 'message': '权限不足'})
+
+    storage = DatabaseManager.get_storage_stats()
+    return jsonify({'success': True, 'storage': storage})
 
 
 @admin_bp.route('/admin/block', methods=['POST'])

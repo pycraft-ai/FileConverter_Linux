@@ -356,18 +356,18 @@
             <i class="fas fa-th-large"></i> 选择转换模式
         </div>
         <div class="card-body">
-            {% set office_modes = ['word转pdf','pdf转word','excel转pdf','ppt转pdf','csv转excel','excel转csv'] %}
-            {% set text_modes = ['md转pdf','html转pdf','PDF OCR识别','图片OCR识别'] %}
-            {% set media_modes = ['图片转pdf','pdf转图片','图片转ppt','pdf合并'] %}
-            {% set secure_modes = ['pdf加密','pdf解密'] %}
+            {% set pdf_office_modes = ['word转pdf','pdf转word','excel转pdf','ppt转pdf','pdf转ppt','ppt转word','pdf转excel','pdf转html','csv转excel','excel转csv'] %}
+            {% set image_modes = ['图片转pdf','pdf转图片','图片转ppt','图片格式互转','图片压缩','图片OCR识别'] %}
+            {% set text_modes = ['md转pdf','html转pdf','md转html','PDF OCR识别','文字转语音'] %}
+            {% set pdf_tool_modes = ['pdf合并','pdf分割','pdf压缩','pdf加密','pdf解密'] %}
             {% set archive_modes = ['文件压缩','文件解压','压缩包解密'] %}
 
             {% for cat_name, cat_modes, cat_icon in [
-                ('Office 文档', office_modes, 'fa-file-alt'),
-                ('文本 / OCR', text_modes, 'fa-font'),
-                ('图片 / 媒体', media_modes, 'fa-images'),
-                ('安全', secure_modes, 'fa-shield-alt'),
-                ('压缩 / 解压', archive_modes, 'fa-file-archive')
+                ('PDF & Office 互转', pdf_office_modes, 'fa-exchange-alt'),
+                ('图片处理', image_modes, 'fa-images'),
+                ('文档与文本', text_modes, 'fa-font'),
+                ('PDF 工具箱', pdf_tool_modes, 'fa-wrench'),
+                ('归档压缩', archive_modes, 'fa-file-archive')
             ] %}
             <div class="mode-category">
                 <div class="mode-cat-title"><i class="fas {{ cat_icon }}" style="margin-right:4px;"></i>{{ cat_name }}</div>
@@ -393,6 +393,16 @@
                         '文件压缩': ('fa-compress-arrows-alt', '#4f46e5', '#eef2ff'),
                         '文件解压': ('fa-expand-arrows-alt', '#7c3aed', '#f3e8ff'),
                         '压缩包解密': ('fa-unlock-alt', '#d97706', '#fef3c7'),
+                        'pdf转ppt': ('fa-file-powerpoint', '#dc2626', '#fef2f2'),
+                        'ppt转word': ('fa-file-word', '#ea580c', '#fff7ed'),
+                        'pdf转html': ('fa-globe', '#2563eb', '#eef2ff'),
+                        'md转html': ('fa-code', '#059669', '#ecfdf5'),
+                        '图片格式互转': ('fa-exchange-alt', '#8b5cf6', '#f3e8ff'),
+                        'pdf压缩': ('fa-compress', '#dc2626', '#fef2f2'),
+                        'pdf分割': ('fa-cut', '#0891b2', '#ecfeff'),
+                        'pdf转excel': ('fa-file-excel', '#16a34a', '#ecfdf5'),
+                        '图片压缩': ('fa-compress-arrows-alt', '#ea580c', '#fff7ed'),
+                        '文字转语音': ('fa-volume-up', '#7c3aed', '#f3e8ff'),
                     } %}
                     {% set icon_info = icons.get(mode, ('fa-file', '#94a3b8', '#f8f9fb')) %}
                     {% set input_type = 'file' %}
@@ -479,6 +489,79 @@
                         <option value="7z">7Z (高压缩率)</option>
                     </select>
                     <span id="formatHint" style="font-size:11px;color:var(--text-muted);margin-left:4px;"></span>
+                </div>
+            </div>
+
+            <!-- 图片目标格式选择 -->
+            <div id="imageFormatArea" style="display:none; margin-top:14px;">
+                <div class="param-row">
+                    <span class="param-label"><i class="fas fa-exchange-alt"></i> 目标格式</span>
+                    <select id="imageFormatSelect" style="width:auto;">
+                        <option value="png">PNG (无损)</option>
+                        <option value="jpg">JPEG (照片)</option>
+                        <option value="webp">WebP (网页)</option>
+                        <option value="bmp">BMP (位图)</option>
+                        <option value="gif">GIF (动图)</option>
+                        <option value="tiff">TIFF (印刷)</option>
+                    </select>
+                    <span id="imageFormatHint" style="font-size:11px;color:var(--text-muted);margin-left:4px;"></span>
+                </div>
+            </div>
+
+            <!-- PDF 压缩质量 -->
+            <div id="pdfCompressArea" style="display:none; margin-top:14px;">
+                <div class="param-row">
+                    <span class="param-label"><i class="fas fa-tachometer-alt"></i> 压缩级别</span>
+                    <select id="pdfCompressSelect" style="width:auto;">
+                        <option value="low">高压缩 (体积最小)</option>
+                        <option value="medium" selected>平衡 (推荐)</option>
+                        <option value="high">轻度压缩 (质量优先)</option>
+                    </select>
+                    <span id="pdfCompressHint" style="font-size:11px;color:var(--text-muted);margin-left:4px;">平衡模式在体积和质量间取得最佳效果</span>
+                </div>
+            </div>
+
+            <!-- 图片压缩质量 -->
+            <div id="imgCompressArea" style="display:none; margin-top:14px;">
+                <div class="param-row">
+                    <span class="param-label"><i class="fas fa-sliders-h"></i> 压缩质量</span>
+                    <input type="range" id="imgQualitySlider" min="10" max="100" value="75" style="width:140px;" oninput="$('#imgQualityVal').text(this.value)">
+                    <span id="imgQualityVal" style="font-weight:600;color:var(--text-primary);min-width:30px;">75</span>
+                    <span style="font-size:11px;color:var(--text-muted);">% (越低体积越小)</span>
+                </div>
+            </div>
+
+            <!-- PDF 分割页码范围 -->
+            <div id="pageRangeArea" style="display:none; margin-top:14px;">
+                <div class="param-row">
+                    <span class="param-label"><i class="fas fa-list-ol"></i> 页码范围</span>
+                    <input type="text" id="pageRangeInput" placeholder="如 1-3,5,7-10" style="flex:1;min-width:160px;padding:8px 12px;border:1.5px solid var(--border-color);border-radius:8px;font-size:13px;background:var(--bg-card);color:var(--text-primary);outline:none;" autocomplete="off">
+                    <span id="pageRangeHint" style="font-size:11px;color:var(--text-muted);">页码从 1 开始，支持逗号和连字符</span>
+                </div>
+            </div>
+
+            <!-- 文字转语音参数 -->
+            <div id="ttsParamsArea" style="display:none; margin-top:14px;">
+                <div class="param-row">
+                    <span class="param-label"><i class="fas fa-user"></i> 声音</span>
+                    <select id="ttsVoiceSelect" style="width:auto;min-width:160px;">
+                        <option value="zh-CN-XiaoxiaoNeural">晓晓 (女·活泼)</option>
+                        <option value="zh-CN-YunxiNeural">云希 (男·沉稳)</option>
+                        <option value="zh-CN-YunjianNeural">云健 (男·活力)</option>
+                        <option value="zh-CN-XiaoyiNeural">晓伊 (女·温柔)</option>
+                        <option value="zh-CN-YunyangNeural">云扬 (男·磁性)</option>
+                        <option value="zh-CN-XiaochenNeural">晓辰 (女·清新)</option>
+                        <option value="zh-CN-XiaohanNeural">晓涵 (女·知性)</option>
+                        <option value="zh-CN-XiaomoNeural">晓墨 (女·文艺)</option>
+                        <option value="zh-CN-XiaoshuangNeural">晓双 (女·甜美)</option>
+                        <option value="zh-CN-YunfengNeural">云枫 (男·深沉)</option>
+                    </select>
+                </div>
+                <div class="param-row">
+                    <span class="param-label"><i class="fas fa-tachometer-alt"></i> 语速</span>
+                    <input type="range" id="ttsRateSlider" min="-50" max="100" value="0" step="10" style="width:140px;" oninput="$('#ttsRateVal').text((this.value >= 0 ? '+' : '') + this.value + '%')">
+                    <span id="ttsRateVal" style="font-weight:600;color:var(--text-primary);min-width:45px;">+0%</span>
+                    <span style="font-size:11px;color:var(--text-muted);">负数为减速，正数为加速</span>
                 </div>
             </div>
 
@@ -636,6 +719,10 @@ $(document).ready(function() {
             'pdf加密': '开始加密',
             'pdf解密': '开始解密',
             'pdf合并': '开始合并',
+            'pdf压缩': '开始压缩',
+            'pdf分割': '开始提取',
+            '图片压缩': '开始压缩',
+            '文字转语音': '开始转换',
         };
         $('#convertBtn').html('<i class="fas fa-magic"></i> ' + (btnTexts[mode] || '开始转换'));
 
@@ -667,6 +754,42 @@ $(document).ready(function() {
             $('#passwordArea').show();
             $('#passwordHint').text('输入该压缩包的密码，去除密码保护');
             $('#pwdStrength').hide();
+        }
+
+        // 图片格式互转
+        if (mode === '图片格式互转') {
+            $('#imageFormatArea').show();
+            $('#imageFormatHint').text('将图片转换为指定格式');
+        } else if ($('#imageFormatArea').is(':visible')) {
+            $('#imageFormatArea').hide();
+        }
+
+        // PDF 压缩
+        if (mode === 'pdf压缩') {
+            $('#pdfCompressArea').show();
+        } else if ($('#pdfCompressArea').is(':visible')) {
+            $('#pdfCompressArea').hide();
+        }
+
+        // 图片压缩
+        if (mode === '图片压缩') {
+            $('#imgCompressArea').show();
+        } else if ($('#imgCompressArea').is(':visible')) {
+            $('#imgCompressArea').hide();
+        }
+
+        // PDF 分割
+        if (mode === 'pdf分割') {
+            $('#pageRangeArea').show();
+        } else if ($('#pageRangeArea').is(':visible')) {
+            $('#pageRangeArea').hide();
+        }
+
+        // 文字转语音
+        if (mode === '文字转语音') {
+            $('#ttsParamsArea').show();
+        } else if ($('#ttsParamsArea').is(':visible')) {
+            $('#ttsParamsArea').hide();
         }
 
         // 模式变更文件需重新选
@@ -961,6 +1084,25 @@ $(document).ready(function() {
             const pwd = $('#passwordInput').val().trim();
             if (!pwd) { showToast('请输入压缩包密码'); return; }
             formData.append('password', pwd);
+        }
+        if (mode === '图片格式互转') {
+            const targetFmt = $('#imageFormatSelect').val();
+            formData.append('target_format', targetFmt);
+        }
+        if (mode === 'pdf压缩') {
+            formData.append('quality', $('#pdfCompressSelect').val());
+        }
+        if (mode === '图片压缩') {
+            formData.append('img_quality', $('#imgQualitySlider').val());
+        }
+        if (mode === 'pdf分割') {
+            const pageRange = $('#pageRangeInput').val().trim();
+            if (!pageRange) { showToast('请输入页码范围，如 1-3,5,7-10'); return; }
+            formData.append('page_range', pageRange);
+        }
+        if (mode === '文字转语音') {
+            formData.append('voice', $('#ttsVoiceSelect').val());
+            formData.append('rate', ($('#ttsRateSlider').val() >= 0 ? '+' : '') + $('#ttsRateSlider').val() + '%');
         }
 
         var fieldName = (inputType === 'file') ? 'file' : 'files';

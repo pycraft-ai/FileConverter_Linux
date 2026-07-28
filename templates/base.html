@@ -297,6 +297,9 @@
                 <a class="nav-item {% if request.endpoint == 'converter.index' %}active{% endif %}" href="{{ url_for('converter.index') }}">
                     <i class="fas fa-exchange-alt"></i> 文件转换
                 </a>
+                <a class="nav-item {% if request.endpoint == 'converter.dashboard' %}active{% endif %}" href="{{ url_for('converter.dashboard') }}">
+                    <i class="fas fa-chart-pie"></i> 仪表盘
+                </a>
                 <a class="nav-item {% if request.endpoint == 'converter.my_logs' %}active{% endif %}" href="{{ url_for('converter.my_logs') }}">
                     <i class="fas fa-history"></i> 转换记录
                 </a>

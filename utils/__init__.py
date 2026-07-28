@@ -176,6 +176,9 @@ MAGIC_SIGNATURES = {
         (0, b'II*\x00'),   # Little-endian
         (0, b'MM\x00*'),   # Big-endian
     ],
+    'webp': [
+        (0, b'RIFF'),      # RIFF 容器
+    ],
     'csv': None,   # 纯文本格式，无固定幻数
     'md': None,    # 纯文本格式
     'txt': None,   # 纯文本格式
@@ -425,7 +428,7 @@ def validate_file_extension_extended(filename: str, filepath: str, expected_ext:
         (is_valid: bool, error_message: str)
     """
     # 检查扩展名
-    allowed_extensions = {'docx', 'pdf', 'jpg', 'jpeg', 'png', 'bmp', 'gif', 'tiff',
+    allowed_extensions = {'docx', 'pdf', 'jpg', 'jpeg', 'png', 'bmp', 'gif', 'tiff', 'webp',
                           'csv', 'xlsx', 'xls', 'pptx', 'ppt', 'txt', 'md', 'html', 'htm'}
 
     if '.' not in filename:

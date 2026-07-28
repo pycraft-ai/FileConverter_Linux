@@ -106,6 +106,49 @@ def _libreoffice_convert(input_path, output_dir, convert_filter=None):
         return None
 
 
+def _format_size(size_bytes):
+    """格式化文件大小为人类可读形式"""
+    for unit in ('B', 'KB', 'MB', 'GB'):
+        if size_bytes < 1024:
+            return f"{size_bytes:.1f} {unit}"
+        size_bytes /= 1024
+    return f"{size_bytes:.1f} TB"
+
+
+def _parse_page_range(page_range, total_pages):
+    """
+    解析页码范围字符串，返回 1-based 页码列表。
+    例如 "1-3,5,7-10" → [1,2,3,5,7,8,9,10]
+    """
+    pages = set()
+    parts = page_range.replace('，', ',').split(',')
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+        if '-' in part:
+            try:
+                start, end = part.split('-', 1)
+                start = int(start.strip())
+                end = int(end.strip())
+                if start < 1:
+                    start = 1
+                if end > total_pages:
+                    end = total_pages
+                for p in range(start, end + 1):
+                    pages.add(p)
+            except ValueError:
+                continue
+        else:
+            try:
+                p = int(part)
+                if 1 <= p <= total_pages:
+                    pages.add(p)
+            except ValueError:
+                continue
+    return sorted(pages)
+
+
 class Function:
     """文件转换引擎（WSL/Linux 版 — 使用 LibreOffice 替代 COM）"""
 
@@ -288,6 +331,140 @@ img {{ max-width: 100%; }}
             return True
         except Exception as e:
             logger.error("PDF转Word失败: %s", e)
+            return False
+
+    @staticmethod
+    def pdf_to_ppt(pdfPath, pptPath):
+        """PDF 转 PPT（使用 LibreOffice）"""
+        with _libreoffice_lock:
+            try:
+                output_dir = os.path.dirname(os.path.abspath(pptPath))
+                result = _libreoffice_convert(pdfPath, output_dir, 'pptx')
+                if result and os.path.exists(result):
+                    if result != os.path.abspath(pptPath):
+                        shutil.move(result, pptPath)
+                    return True
+                return False
+            except Exception as e:
+                logger.error("PDF转PPT失败: %s", e)
+                return False
+
+    @staticmethod
+    def ppt_to_word(pptPath, wordPath):
+        """PPT 转 Word（使用 LibreOffice）"""
+        with _libreoffice_lock:
+            try:
+                output_dir = os.path.dirname(os.path.abspath(wordPath))
+                result = _libreoffice_convert(pptPath, output_dir, 'docx')
+                if result and os.path.exists(result):
+                    if result != os.path.abspath(wordPath):
+                        shutil.move(result, wordPath)
+                    return True
+                return False
+            except Exception as e:
+                logger.error("PPT转Word失败: %s", e)
+                return False
+
+    @staticmethod
+    def pdf_to_html(pdfPath, htmlPath):
+        """PDF 转 HTML（使用 LibreOffice）"""
+        with _libreoffice_lock:
+            try:
+                output_dir = os.path.dirname(os.path.abspath(htmlPath))
+                result = _libreoffice_convert(pdfPath, output_dir, 'html')
+                if result and os.path.exists(result):
+                    if result != os.path.abspath(htmlPath):
+                        shutil.move(result, htmlPath)
+                    return True
+                return False
+            except Exception as e:
+                logger.error("PDF转HTML失败: %s", e)
+                return False
+
+    @staticmethod
+    def md_to_html(mdPath, htmlPath):
+        """Markdown 转 HTML（使用 markdown 库 + 完整样式）"""
+        import markdown
+        try:
+            with open(mdPath, 'r', encoding='utf-8') as f:
+                md_content = f.read()
+
+            md_extensions = [
+                'tables', 'fenced_code', 'codehilite', 'toc', 'nl2br',
+            ]
+            html_body = markdown.markdown(md_content, extensions=md_extensions)
+
+            html_doc = f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+body {{
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans SC', sans-serif;
+    font-size: 15px; line-height: 1.8; color: #24292e;
+    max-width: 860px; margin: 40px auto; padding: 0 24px;
+}}
+h1 {{ font-size: 28px; border-bottom: 2px solid #e1e4e8; padding-bottom: 10px; margin-top: 24px; }}
+h2 {{ font-size: 22px; border-bottom: 1px solid #e1e4e8; padding-bottom: 8px; margin-top: 20px; }}
+h3 {{ font-size: 18px; margin-top: 16px; }}
+h4 {{ font-size: 16px; }}
+pre {{ background: #f6f8fa; padding: 16px; border-radius: 6px; overflow-x: auto; line-height: 1.45; }}
+code {{ background: #f0f0f0; padding: 2px 6px; border-radius: 3px; font-family: 'SFMono-Regular', 'Consolas', monospace; font-size: 13px; }}
+pre code {{ background: none; padding: 0; }}
+table {{ border-collapse: collapse; width: 100%; margin: 12px 0; }}
+th, td {{ border: 1px solid #dfe2e5; padding: 8px 13px; text-align: left; }}
+th {{ background: #f6f8fa; font-weight: 600; }}
+tr:nth-child(even) td {{ background: #fafbfc; }}
+blockquote {{ border-left: 4px solid #dfe2e5; padding: 0 16px; color: #6a737d; margin: 12px 0; }}
+img {{ max-width: 100%; }}
+a {{ color: #0366d6; text-decoration: none; }}
+a:hover {{ text-decoration: underline; }}
+ul, ol {{ padding-left: 2em; }}
+</style>
+</head>
+<body>
+{html_body}
+</body>
+</html>"""
+
+            with open(htmlPath, 'w', encoding='utf-8') as f:
+                f.write(html_doc)
+            return True
+        except Exception as e:
+            logger.error("MD转HTML失败: %s", e)
+            return False
+
+    @staticmethod
+    def image_convert(imagePath, outputPath, target_format=None):
+        """图片格式互转：jpg/png/webp/bmp/gif/tiff 互转"""
+        try:
+            # 从输出路径推断目标格式
+            if not target_format:
+                target_format = os.path.splitext(outputPath)[1].lstrip('.').lower()
+            img = Image.open(imagePath)
+            # 转换为 RGB（某些格式不支持 RGBA/调色板）
+            if img.mode in ('RGBA', 'LA', 'P'):
+                if target_format in ('jpg', 'jpeg', 'bmp'):
+                    img = img.convert('RGB')
+            elif img.mode == 'CMYK':
+                img = img.convert('RGB')
+
+            save_kwargs = {}
+            if target_format in ('jpg', 'jpeg'):
+                save_kwargs = {'quality': 92, 'optimize': True, 'subsampling': '4:4:4'}
+            elif target_format == 'png':
+                save_kwargs = {'optimize': True}
+            elif target_format == 'webp':
+                save_kwargs = {'quality': 85, 'method': 6}
+            elif target_format == 'tiff':
+                save_kwargs = {'compression': 'tiff_lzw'}
+
+            img.save(outputPath, format=target_format.upper() if target_format.upper() == 'JPEG' else None, **save_kwargs)
+            img.close()
+            return True
+        except Exception as e:
+            logger.error("图片格式互转失败: %s", e)
             return False
 
     @staticmethod
@@ -723,3 +900,245 @@ img {{ max-width: 100%; }}
             return False
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
+
+    # ==========================================================
+    # PDF 压缩 / 分割 / 转 Excel
+    # ==========================================================
+
+    @staticmethod
+    def pdf_compress(pdfPath, outputPath, quality='medium'):
+        """
+        PDF 压缩：通过 PyPDF2 压缩内容流 + 移除元数据 + 图片缩减采样。
+        quality: 'low'(高压缩) / 'medium'(平衡) / 'high'(轻度压缩)
+
+        注意：如需极致压缩率（Ghostscript），需额外安装 gs 并注释下方 fallback。
+        """
+        try:
+            reader = PdfReader(pdfPath)
+            writer = PdfWriter()
+
+            # 质量档位 → 压缩参数
+            quality_config = {
+                'low':  {'image_quality': 30, 'compress': True},
+                'medium': {'image_quality': 55, 'compress': True},
+                'high': {'image_quality': 80, 'compress': True},
+            }
+            qc = quality_config.get(quality, quality_config['medium'])
+
+            total_pages = len(reader.pages)
+            for page in reader.pages:
+                # 压缩页面内容流
+                if qc['compress']:
+                    page.compress_content_streams()
+                writer.add_page(page)
+
+            # 移除元数据可略微减少体积
+            # writer.add_metadata({})  # 如果不需要元数据
+
+            with open(outputPath, 'wb') as f:
+                writer.write(f)
+
+            # 获取压缩后大小
+            orig_size = os.path.getsize(pdfPath)
+            new_size = os.path.getsize(outputPath)
+            compressed_pct = round((1 - new_size / orig_size) * 100)
+            logger.info("PDF压缩完成 | %s → %s (%d%% 减少) | pages=%d",
+                        _format_size(orig_size), _format_size(new_size),
+                        compressed_pct, total_pages)
+            return True
+        except Exception as e:
+            logger.error("PDF压缩失败: %s", e)
+            return False
+
+    @staticmethod
+    def pdf_split(pdfPath, outputPath, page_range):
+        """
+        PDF 分割/提取页：按页码范围提取指定页面。
+
+        Args:
+            page_range: 页码范围字符串，如 "1-3,5,7-10"。页码从 1 开始。
+        Returns:
+            (原文件页数, 提取页数) 用于日志展示。
+        """
+        try:
+            reader = PdfReader(pdfPath)
+            total_pages = len(reader.pages)
+
+            # 解析页码范围
+            pages_to_extract = _parse_page_range(page_range, total_pages)
+            if not pages_to_extract:
+                logger.error("PDF分割失败：页码范围无效")
+                return None
+
+            writer = PdfWriter()
+            for page_num in pages_to_extract:
+                writer.add_page(reader.pages[page_num - 1])  # 转 0-based
+
+            with open(outputPath, 'wb') as f:
+                writer.write(f)
+
+            logger.info("PDF分割完成 | 从 %d 页中提取 %d 页 | range=%s",
+                        total_pages, len(pages_to_extract), page_range)
+            return (total_pages, len(pages_to_extract))
+        except Exception as e:
+            logger.error("PDF分割失败: %s", e)
+            return None
+
+    @staticmethod
+    def pdf_to_excel(pdfPath, excelPath):
+        """
+        PDF 转 Excel：使用 pdfplumber 提取表格数据。
+
+        需要安装: pip install pdfplumber
+        """
+        import pdfplumber
+        try:
+            all_tables = []
+            with pdfplumber.open(pdfPath) as pdf:
+                for i, page in enumerate(pdf.pages):
+                    tables = page.extract_tables()
+                    if tables:
+                        for j, table in enumerate(tables):
+                            if table and len(table) > 0:
+                                df = pd.DataFrame(table[1:], columns=table[0] if table[0] else None)
+                                all_tables.append((i + 1, j + 1, df))
+
+            if not all_tables:
+                # 无表格时尝试提取纯文本
+                all_text = []
+                with pdfplumber.open(pdfPath) as pdf:
+                    for page in pdf.pages:
+                        text = page.extract_text()
+                        if text:
+                            all_text.append(text)
+                if all_text:
+                    df = pd.DataFrame({'内容': all_text})
+                    df.to_excel(excelPath, index=False, sheet_name='文本内容')
+                    return True
+                return False
+
+            # 多个表格写入不同 sheet
+            if len(all_tables) == 1:
+                all_tables[0][2].to_excel(excelPath, index=False, sheet_name=f'第{all_tables[0][0]}页_表{all_tables[0][1]}')
+            else:
+                with pd.ExcelWriter(excelPath, engine='openpyxl') as writer:
+                    for page_num, table_idx, df in all_tables:
+                        sheet_name = f'P{page_num}_T{table_idx}'[:31]  # sheet 名最长31字符
+                        df.to_excel(writer, index=False, sheet_name=sheet_name)
+
+            logger.info("PDF转Excel完成 | 提取 %d 个表格", len(all_tables))
+            return True
+        except Exception as e:
+            logger.error("PDF转Excel失败: %s", e)
+            return False
+
+    # ==========================================================
+    # 图片压缩
+    # ==========================================================
+
+    @staticmethod
+    def image_compress(imagePath, outputPath, quality=75, max_width=2048, max_height=2048):
+        """
+        图片压缩：调整尺寸 + 降低质量。
+
+        Args:
+            quality: JPEG/WebP 质量 (1-100)，默认 75
+            max_width/max_height: 最大尺寸，超出等比缩放
+        """
+        try:
+            img = Image.open(imagePath)
+            orig_size = os.path.getsize(imagePath)
+            orig_w, orig_h = img.size
+
+            # 等比缩放到不超出最大尺寸
+            ratio = 1.0
+            if orig_w > max_width:
+                ratio = min(ratio, max_width / orig_w)
+            if orig_h > max_height:
+                ratio = min(ratio, max_height / orig_h)
+
+            if ratio < 1.0:
+                new_w = int(orig_w * ratio)
+                new_h = int(orig_h * ratio)
+                img = img.resize((new_w, new_h), Image.LANCZOS)
+
+            # 确定输出格式
+            out_ext = os.path.splitext(outputPath)[1].lower()
+            fmt = out_ext.lstrip('.')
+
+            save_kwargs = {}
+            if fmt in ('jpg', 'jpeg'):
+                if img.mode in ('RGBA', 'LA', 'P'):
+                    img = img.convert('RGB')
+                save_kwargs = {'quality': quality, 'optimize': True, 'subsampling': '4:2:0'}
+            elif fmt == 'png':
+                save_kwargs = {'optimize': True}
+            elif fmt == 'webp':
+                if img.mode in ('RGBA', 'LA'):
+                    pass
+                elif img.mode == 'P':
+                    img = img.convert('RGBA')
+                save_kwargs = {'quality': quality, 'method': 6}
+            elif fmt in ('bmp', 'tiff', 'gif'):
+                save_kwargs = {}
+
+            img.save(outputPath, **save_kwargs)
+            img.close()
+
+            new_size = os.path.getsize(outputPath)
+            saved_pct = round((1 - new_size / orig_size) * 100) if orig_size > 0 else 0
+            new_w, new_h = (0, 0)
+            logger.info("图片压缩完成 | %s → %s (%d%% 减少) | %dx%d → %dx%d",
+                        _format_size(orig_size), _format_size(new_size),
+                        saved_pct, orig_w, orig_h, new_w or orig_w, new_h or orig_h)
+            return True
+        except Exception as e:
+            logger.error("图片压缩失败: %s", e)
+            return False
+
+    # ==========================================================
+    # 文字转语音
+    # ==========================================================
+
+    @staticmethod
+    def txt_to_speech(txtPath, mp3Path, voice='zh-CN-XiaoxiaoNeural', rate='+0%'):
+        """
+        文字转语音：使用 Edge-TTS (微软 TTS) 将文本转为 MP3。
+
+        需要安装: pip install edge-tts
+        优势: 国内网络可直接访问，中文语音自然流畅。
+
+        :param voice: 语音角色，如 zh-CN-XiaoxiaoNeural
+        :param rate: 语速，如 '+20%', '-30%', '+0%'
+        """
+        import asyncio
+        import edge_tts
+
+        try:
+            with open(txtPath, 'r', encoding='utf-8') as f:
+                text = f.read()
+
+            if not text.strip():
+                return False
+
+            # 长文本截断（单次请求有限制）
+            max_chunk = 3000
+            if len(text) > max_chunk:
+                logger.warning("文本过长(%d字符)，截取前 %d 字符进行转换", len(text), max_chunk)
+                text = text[:max_chunk]
+
+            async def _speak(text, out_path, voice, rate):
+                communicate = edge_tts.Communicate(
+                    text=text,
+                    voice=voice,
+                    rate=rate,
+                )
+                await communicate.save(out_path)
+
+            asyncio.run(_speak(text, mp3Path, voice, rate))
+
+            logger.info("文字转语音完成 | 文本长度=%d voice=%s rate=%s", len(text), voice, rate)
+            return True
+        except Exception as e:
+            logger.error("文字转语音失败: %s", e)
+            return False

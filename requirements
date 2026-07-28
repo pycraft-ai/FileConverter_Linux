@@ -16,3 +16,9 @@ python-dotenv
 # 压缩/解压
 py7zr
 pyzipper
+
+# PDF 表格提取
+pdfplumber
+
+# 文字转语音
+gTTS

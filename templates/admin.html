@@ -1,8 +1,189 @@
 {% extends "base.html" %}
 {% block title %}管理员面板{% endblock %}
+
+{% block head_extra %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+{% endblock %}
+
 {% block content %}
+<style>
+    .stat-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; margin-bottom: 24px; }
+    .stat-card {
+        background: var(--bg-card); border: var(--border-color);
+        border-radius: 14px; padding: 18px 20px;
+        display: flex; align-items: center; gap: 14px;
+        transition: transform .15s, box-shadow .15s;
+    }
+    .stat-card:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(0,0,0,.08); }
+    .stat-card .sc-icon {
+        width: 44px; height: 44px; border-radius: 12px;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 18px; flex-shrink: 0;
+    }
+    .stat-card .sc-info { flex: 1; min-width: 0; }
+    .stat-card .sc-value { font-size: 24px; font-weight: 700; line-height: 1.1; color: var(--text-primary); }
+    .stat-card .sc-label { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+    .section-tabs { display: flex; gap: 0; margin-bottom: 20px; border-bottom: 2px solid var(--border-color); }
+    .section-tabs .tab-btn {
+        padding: 10px 22px; border: none; background: none;
+        font-size: 14px; font-weight: 500; color: var(--text-muted);
+        cursor: pointer; border-bottom: 2px solid transparent;
+        margin-bottom: -2px; transition: all .15s;
+    }
+    .section-tabs .tab-btn:hover { color: #667eea; }
+    .section-tabs .tab-btn.active { color: #667eea; border-bottom-color: #667eea; font-weight: 600; }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+    .charts-row { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 24px; }
+    @media (max-width: 768px) { .charts-row { grid-template-columns: 1fr; } }
+    .chart-card {
+        background: var(--bg-card); border: var(--border-color);
+        border-radius: 14px; padding: 18px;
+    }
+    .chart-card .chart-title {
+        font-size: 14px; font-weight: 600; color: var(--text-primary);
+        margin-bottom: 12px; display: flex; align-items: center; gap: 8px;
+    }
+    .chart-card canvas { max-height: 300px; }
+    .user-top-list { list-style: none; padding: 0; margin: 0; }
+    .user-top-list li {
+        display: flex; align-items: center; gap: 10px;
+        padding: 8px 0; border-bottom: 1px solid var(--border-color);
+        font-size: 13px;
+    }
+    .user-top-list li:last-child { border-bottom: none; }
+    .user-top-rank {
+        width: 24px; height: 24px; border-radius: 50%;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 11px; font-weight: 700; flex-shrink: 0;
+    }
+    .user-top-rank.r1 { background: #fef3c7; color: #d97706; }
+    .user-top-rank.r2 { background: #f1f5f9; color: #64748b; }
+    .user-top-rank.r3 { background: #fef2f2; color: #dc2626; }
+    .user-top-name { flex: 1; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .user-top-count { font-weight: 600; color: #667eea; }
+</style>
+
 <div class="row">
     <div class="col-md-12">
+        <!-- 统计卡片 -->
+        {% if stats %}
+        <div class="stat-cards">
+            <div class="stat-card">
+                <div class="sc-icon" style="background: rgba(102,126,234,.12); color: #667eea;">
+                    <i class="fas fa-users"></i>
+                </div>
+                <div class="sc-info">
+                    <div class="sc-value">{{ stats.total_users }}</div>
+                    <div class="sc-label">注册用户</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="sc-icon" style="background: rgba(16,185,129,.12); color: #10b981;">
+                    <i class="fas fa-user-check"></i>
+                </div>
+                <div class="sc-info">
+                    <div class="sc-value">{{ stats.today_active }}</div>
+                    <div class="sc-label">今日活跃</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="sc-icon" style="background: rgba(245,158,11,.12); color: #f59e0b;">
+                    <i class="fas fa-exchange-alt"></i>
+                </div>
+                <div class="sc-info">
+                    <div class="sc-value">{{ stats.total_conversions }}</div>
+                    <div class="sc-label">总转换次数</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="sc-icon" style="background: rgba(139,92,246,.12); color: #8b5cf6;">
+                    <i class="fas fa-calendar-day"></i>
+                </div>
+                <div class="sc-info">
+                    <div class="sc-value">{{ stats.today_total }}</div>
+                    <div class="sc-label">
+                        今日转换
+                        <span style="color:#10b981;">{{ stats.today_success }}成功</span>
+                        {% if stats.today_fail > 0 %}
+                        <span style="color:#ef4444;">/ {{ stats.today_fail }}失败</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="sc-icon" style="background: rgba(249,115,22,.12); color: #f97316;">
+                    <i class="fas fa-calendar-week"></i>
+                </div>
+                <div class="sc-info">
+                    <div class="sc-value">{{ stats.weekly_total }}</div>
+                    <div class="sc-label">
+                        本周转换
+                        <span style="color:#10b981;">{{ stats.weekly_success }}成功</span>
+                        {% if stats.weekly_fail > 0 %}
+                        <span style="color:#ef4444;">/ {{ stats.weekly_fail }}失败</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="sc-icon" style="background: rgba(34,197,94,.12); color: #22c55e;">
+                    <i class="fas fa-check-circle"></i>
+                </div>
+                <div class="sc-info">
+                    {% set rate = (stats.total_success / stats.total_conversions * 100) if stats.total_conversions > 0 else 0 %}
+                    <div class="sc-value">{{ "%.1f"|format(rate) }}%</div>
+                    <div class="sc-label">整体成功率</div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- 存储空间卡片 -->
+        {% if storage %}
+        <div class="stat-cards" style="grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));">
+            <div class="stat-card">
+                <div class="sc-icon" style="background: rgba(59,130,246,.12); color: #3b82f6;">
+                    <i class="fas fa-upload"></i>
+                </div>
+                <div class="sc-info">
+                    <div class="sc-value" id="storage-uploads">{{ "%.1f"|format(storage.uploads_size / 1048576) }} MB</div>
+                    <div class="sc-label">上传文件 <small>({{ storage.uploads_count }} 个)</small></div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="sc-icon" style="background: rgba(16,185,129,.12); color: #10b981;">
+                    <i class="fas fa-download"></i>
+                </div>
+                <div class="sc-info">
+                    <div class="sc-value" id="storage-outputs">{{ "%.1f"|format(storage.outputs_size / 1048576) }} MB</div>
+                    <div class="sc-label">输出文件 <small>({{ storage.outputs_count }} 个)</small></div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="sc-icon" style="background: rgba(245,158,11,.12); color: #f59e0b;">
+                    <i class="fas fa-hdd"></i>
+                </div>
+                <div class="sc-info">
+                    <div class="sc-value" id="storage-total">{{ "%.1f"|format(storage.total_size / 1048576) }} MB</div>
+                    <div class="sc-label">总占用 <small>({{ storage.total_count }} 个文件)</small></div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- 标签切换 -->
+        <div class="section-tabs">
+            <button class="tab-btn active" data-tab="tab-users">
+                <i class="fas fa-users me-1"></i>用户管理
+            </button>
+            <button class="tab-btn" data-tab="tab-charts">
+                <i class="fas fa-chart-pie me-1"></i>数据概览
+            </button>
+        </div>
+
+        <!-- 用户管理面板 -->
+        <div class="tab-panel active" id="tab-users">
         <div class="glass-card p-4">
             <div class="d-flex align-items-center mb-4">
                 <div class="section-icon me-2" style="background: linear-gradient(135deg, #f093fb, #f5576c);">
@@ -89,6 +270,54 @@
                 </table>
             </div>
         </div>
+        </div><!-- end tab-users -->
+
+        <!-- 数据概览面板 -->
+        <div class="tab-panel" id="tab-charts">
+            {% if stats %}
+            <div class="charts-row">
+                <!-- 模式分布饼图 -->
+                <div class="chart-card">
+                    <div class="chart-title"><i class="fas fa-chart-pie" style="color:#667eea;"></i> 转换模式分布</div>
+                    <canvas id="modePieChart"></canvas>
+                </div>
+                <!-- 日趋势折线图 -->
+                <div class="chart-card">
+                    <div class="chart-title"><i class="fas fa-chart-line" style="color:#10b981;"></i> 7日转换趋势</div>
+                    <canvas id="trendLineChart"></canvas>
+                </div>
+                <!-- 活跃用户排行 -->
+                <div class="chart-card">
+                    <div class="chart-title"><i class="fas fa-trophy" style="color:#f59e0b;"></i> 用户活跃排行 Top 10</div>
+                    <ul class="user-top-list">
+                        {% for u in stats.by_user %}
+                        <li>
+                            <span class="user-top-rank {% if loop.index == 1 %}r1{% elif loop.index == 2 %}r2{% elif loop.index == 3 %}r3{% endif %}">{{ loop.index }}</span>
+                            <span class="user-top-name">{{ u.username }}</span>
+                            <span class="user-top-count">{{ u.count }} 次</span>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                <!-- 模式柱状图 -->
+                <div class="chart-card">
+                    <div class="chart-title"><i class="fas fa-chart-bar" style="color:#8b5cf6;"></i> 热门转换模式 Top 10</div>
+                    <canvas id="modeBarChart"></canvas>
+                </div>
+                <!-- 存储空间占比 -->
+                <div class="chart-card">
+                    <div class="chart-title"><i class="fas fa-hdd" style="color:#f59e0b;"></i> 存储空间占用概览</div>
+                    <canvas id="storagePieChart"></canvas>
+                </div>
+            </div>
+            {% else %}
+            <div class="glass-card p-4 text-center text-muted">
+                <i class="fas fa-chart-pie" style="font-size:48px;opacity:.3;margin-bottom:12px;display:block;"></i>
+                暂无数���
+            </div>
+            {% endif %}
+        </div><!-- end tab-charts -->
+
     </div>
 </div>
 
@@ -142,7 +371,140 @@
 {% block scripts %}
 <script>
 $(document).ready(function() {
-    // 封禁/解封
+    // ===== 标签切换 =====
+    $('.tab-btn').on('click', function() {
+        const tab = $(this).data('tab');
+        $('.tab-btn').removeClass('active');
+        $(this).addClass('active');
+        $('.tab-panel').removeClass('active');
+        $('#' + tab).addClass('active');
+        // 切换到图表标签时初始化图表
+        if (tab === 'tab-charts') initCharts();
+    });
+
+    // ===== 图表初始化 =====
+    var _chartsInitialized = false;
+    var _chartInstances = {};
+
+    function initCharts() {
+        if (_chartsInitialized) return;
+
+        {% if stats %}
+        // 模式饼图
+        var modeLabels = [{% for m in stats.by_mode %}'{{ m.mode }}'{% if not loop.last %},{% endif %}{% endfor %}];
+        var modeData = [{% for m in stats.by_mode %}{{ m.count }}{% if not loop.last %},{% endif %}{% endfor %}];
+        var pieColors = ['#667eea','#764ba2','#f59e0b','#10b981','#ef4444','#8b5cf6','#06b6d4','#f97316','#14b8a6','#ec4899'];
+
+        if (modeLabels.length > 0) {
+            var pieCtx = document.getElementById('modePieChart');
+            if (pieCtx) {
+                _chartInstances.pie = new Chart(pieCtx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: modeLabels,
+                        datasets: [{ data: modeData, backgroundColor: pieColors, borderWidth: 2, borderColor: 'var(--bg-card)' }]
+                    },
+                    options: {
+                        responsive: true, maintainAspectRatio: true,
+                        plugins: { legend: { position: 'right', labels: { padding: 12, usePointStyle: true, font: { size: 11 } } } }
+                    }
+                });
+            }
+        }
+
+        // 7日趋势
+        var trendLabels = [{% for t in trend %}'{{ t.day }}'{% if not loop.last %},{% endif %}{% endfor %}];
+        var trendTotal = [{% for t in trend %}{{ t.total }}{% if not loop.last %},{% endif %}{% endfor %}];
+        var trendSuccess = [{% for t in trend %}{{ t.success_count }}{% if not loop.last %},{% endif %}{% endfor %}];
+        var trendFail = [{% for t in trend %}{{ t.fail_count }}{% if not loop.last %},{% endif %}{% endfor %}];
+
+        if (trendLabels.length > 0) {
+            var lineCtx = document.getElementById('trendLineChart');
+            if (lineCtx) {
+                _chartInstances.line = new Chart(lineCtx, {
+                    type: 'line',
+                    data: {
+                        labels: trendLabels,
+                        datasets: [
+                            { label: '总数', data: trendTotal, borderColor: '#667eea', backgroundColor: 'rgba(102,126,234,.1)', fill: true, tension: .3, pointRadius: 3 },
+                            { label: '成功', data: trendSuccess, borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,.1)', fill: false, tension: .3, pointRadius: 3 },
+                            { label: '失败', data: trendFail, borderColor: '#ef4444', backgroundColor: 'rgba(239,68,68,.1)', fill: false, tension: .3, pointRadius: 3 }
+                        ]
+                    },
+                    options: {
+                        responsive: true, maintainAspectRatio: true,
+                        plugins: { legend: { labels: { usePointStyle: true, padding: 16, font: { size: 11 } } } },
+                        scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } }
+                    }
+                });
+            }
+        }
+
+        // 模式柱状图
+        if (modeLabels.length > 0) {
+            var barCtx = document.getElementById('modeBarChart');
+            if (barCtx) {
+                _chartInstances.bar = new Chart(barCtx, {
+                    type: 'bar',
+                    data: {
+                        labels: modeLabels,
+                        datasets: [{ label: '转换次数', data: modeData, backgroundColor: pieColors, borderRadius: 6 }]
+                    },
+                    options: {
+                        responsive: true, maintainAspectRatio: true,
+                        plugins: { legend: { display: false } },
+                        scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } }
+                    }
+                });
+            }
+        }
+
+        // 存储空间占比图
+        {% if storage %}
+        var storageCtx = document.getElementById('storagePieChart');
+        if (storageCtx) {
+            _chartInstances.storage = new Chart(storageCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['上传目录', '输出目录'],
+                    datasets: [{
+                        data: [{{ storage.uploads_size }}, {{ storage.outputs_size }}],
+                        backgroundColor: ['#3b82f6', '#10b981'],
+                        borderWidth: 2,
+                        borderColor: 'var(--bg-card)'
+                    }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: true,
+                    plugins: {
+                        legend: { position: 'bottom', labels: { padding: 14, usePointStyle: true, font: { size: 11 } } },
+                        tooltip: {
+                            callbacks: {
+                                label: function(ctx) {
+                                    var bytes = ctx.raw;
+                                    var size = bytes >= 1048576 ? (bytes / 1048576).toFixed(1) + ' MB'
+                                        : bytes >= 1024 ? (bytes / 1024).toFixed(1) + ' KB'
+                                        : bytes + ' B';
+                                    return ctx.label + ': ' + size;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        {% endif %}
+        {% endif %}
+
+        _chartsInitialized = true;
+    }
+
+    // 如果 URL hash 指向 charts，自动切换
+    if (window.location.hash === '#charts') {
+        $('.tab-btn[data-tab="tab-charts"]').trigger('click');
+    }
+
+    // ===== 封禁/解封 =====
     $('.block-btn').click(function() {
         const username = $(this).data('username');
         if (!confirm('确认要操作用户 ' + username + ' 的封禁状态吗？')) return;

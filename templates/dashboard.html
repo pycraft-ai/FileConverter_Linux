@@ -1,0 +1,394 @@
+{% extends "base.html" %}
+{% block title %}我的仪表盘{% endblock %}
+
+{% block head_extra %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<style>
+    .dash-header {
+        display: flex; align-items: center; justify-content: space-between;
+        margin-bottom: 20px;
+    }
+    .dash-header h3 {
+        font-size: 20px; font-weight: 700; color: var(--text-primary);
+        display: flex; align-items: center; gap: 10px; margin: 0;
+    }
+
+    /* 统计卡片 */
+    .stat-cards {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+        gap: 14px;
+        margin-bottom: 22px;
+    }
+    .stat-card {
+        background: var(--bg-card);
+        border: var(--border-color);
+        border-radius: 14px;
+        padding: 20px 22px;
+        display: flex; align-items: center; gap: 14px;
+        transition: transform .15s, box-shadow .15s;
+    }
+    .stat-card:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(0,0,0,.08); }
+    .stat-card .sc-icon {
+        width: 46px; height: 46px; border-radius: 12px;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 19px; flex-shrink: 0;
+    }
+    .stat-card .sc-info { flex: 1; min-width: 0; }
+    .stat-card .sc-value {
+        font-size: 26px; font-weight: 700; line-height: 1.1;
+        color: var(--text-primary);
+    }
+    .stat-card .sc-label {
+        font-size: 12px; color: var(--text-muted); margin-top: 4px;
+    }
+
+    /* 筛选栏 */
+    .filter-bar {
+        display: flex; align-items: center; gap: 12px;
+        padding: 12px 18px;
+        background: var(--bg-card); border: var(--border-color);
+        border-radius: 12px; margin-bottom: 18px;
+        flex-wrap: wrap;
+    }
+    .filter-bar .filter-label {
+        font-size: 13px; font-weight: 600; color: var(--text-muted);
+        display: flex; align-items: center; gap: 6px;
+    }
+    .filter-bar select {
+        padding: 8px 14px; border: var(--border-color);
+        border-radius: 8px; font-size: 13px;
+        background: var(--bg-item); color: var(--text-primary);
+        outline: none; cursor: pointer;
+    }
+    .filter-bar select:focus {
+        border-color: #667eea;
+        box-shadow: 0 0 0 2px rgba(102,126,234,.15);
+    }
+
+    /* 图表区 */
+    .charts-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 18px;
+    }
+    @media (max-width: 768px) { .charts-grid { grid-template-columns: 1fr; } }
+    .chart-card {
+        background: var(--bg-card); border: var(--border-color);
+        border-radius: 14px; padding: 20px;
+    }
+    .chart-card .chart-title {
+        font-size: 14px; font-weight: 600; color: var(--text-primary);
+        margin-bottom: 14px;
+        display: flex; align-items: center; gap: 8px;
+    }
+    .chart-card canvas { max-height: 280px; }
+
+    /* 模式明细表 */
+    .mode-table-wrap { margin-top: 18px; }
+    .mode-table {
+        width: 100%; border-collapse: collapse;
+        font-size: 13px;
+    }
+    .mode-table th {
+        text-align: left; padding: 10px 14px;
+        background: var(--bg-item); color: var(--text-muted);
+        font-weight: 600; font-size: 12px; text-transform: uppercase;
+        letter-spacing: .4px;
+    }
+    .mode-table th:first-child { border-radius: 8px 0 0 8px; }
+    .mode-table th:last-child { border-radius: 0 8px 8px 0; }
+    .mode-table td {
+        padding: 10px 14px; border-bottom: 1px solid var(--border-color);
+        color: var(--text-primary);
+    }
+    .mode-table tr:hover td { background: rgba(102,126,234,.04); }
+    .mode-table .mode-badge {
+        display: inline-block; padding: 3px 10px; border-radius: 6px;
+        font-size: 12px; font-weight: 500;
+    }
+    .rate-bar-wrap {
+        height: 6px; background: var(--bg-progress);
+        border-radius: 3px; overflow: hidden; margin-top: 4px;
+    }
+    .rate-bar-fill {
+        height: 100%; border-radius: 3px;
+        background: linear-gradient(90deg, #667eea, #764ba2);
+        transition: width .4s;
+    }
+
+    .empty-state {
+        text-align: center; padding: 60px 20px; color: var(--text-muted);
+    }
+    .empty-state i { font-size: 56px; opacity: .15; display: block; margin-bottom: 16px; }
+    .empty-state p { font-size: 15px; }
+    .empty-state a { color: #667eea; text-decoration: none; font-weight: 600; }
+</style>
+
+<div class="dash-header">
+    <h3>
+        <span style="background: linear-gradient(135deg, #667eea, #764ba2); width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center;">
+            <i class="fas fa-chart-pie" style="color: #fff; font-size: 16px;"></i>
+        </span>
+        我的仪表盘
+    </h3>
+</div>
+
+{% if stats and stats.total > 0 %}
+<!-- 统计卡片 -->
+<div class="stat-cards">
+    <div class="stat-card">
+        <div class="sc-icon" style="background: rgba(102,126,234,.12); color: #667eea;">
+            <i class="fas fa-exchange-alt"></i>
+        </div>
+        <div class="sc-info">
+            <div class="sc-value" id="statTotal">{{ stats.total }}</div>
+            <div class="sc-label">总转换次数</div>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="sc-icon" style="background: rgba(16,185,129,.12); color: #10b981;">
+            <i class="fas fa-check-circle"></i>
+        </div>
+        <div class="sc-info">
+            <div class="sc-value" id="statSuccess" style="color: #10b981;">{{ stats.success_count }}</div>
+            <div class="sc-label">成功次数</div>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="sc-icon" style="background: rgba(239,68,68,.12); color: #ef4444;">
+            <i class="fas fa-times-circle"></i>
+        </div>
+        <div class="sc-info">
+            <div class="sc-value" id="statFail" style="color: #ef4444;">{{ stats.fail_count }}</div>
+            <div class="sc-label">失败次数</div>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="sc-icon" style="background: rgba(139,92,246,.12); color: #8b5cf6;">
+            <i class="fas fa-percentage"></i>
+        </div>
+        <div class="sc-info">
+            {% set rate = (stats.success_count / stats.total * 100) if stats.total > 0 else 0 %}
+            <div class="sc-value" id="statRate" style="color: #8b5cf6;">{{ "%.1f"|format(rate) }}%</div>
+            <div class="sc-label">成功率</div>
+        </div>
+    </div>
+</div>
+
+<!-- 筛选栏 -->
+<div class="filter-bar">
+    <span class="filter-label"><i class="fas fa-filter"></i> 按模式筛选</span>
+    <select id="modeFilter">
+        <option value="">全部模式</option>
+        {% for m in all_modes %}
+        <option value="{{ m }}">{{ m }}</option>
+        {% endfor %}
+    </select>
+    <span class="filter-label" style="margin-left: 8px;"><i class="fas fa-calendar"></i> 趋势天数</span>
+    <select id="trendDays">
+        <option value="7">7天</option>
+        <option value="14">14天</option>
+        <option value="30">30天</option>
+    </select>
+</div>
+
+<!-- 图表 -->
+<div class="charts-grid">
+    <!-- 成功/失败 环形图 -->
+    <div class="chart-card">
+        <div class="chart-title"><i class="fas fa-chart-doughnut" style="color:#667eea;"></i> 成功 / 失败 占比</div>
+        <canvas id="successRateChart"></canvas>
+    </div>
+    <!-- 按模式柱状图 -->
+    <div class="chart-card">
+        <div class="chart-title"><i class="fas fa-chart-bar" style="color:#8b5cf6;"></i> 各模式转换次数</div>
+        <canvas id="modeBarChart"></canvas>
+    </div>
+    <!-- 7日趋势图 -->
+    <div class="chart-card" style="grid-column: 1 / -1;">
+        <div class="chart-title"><i class="fas fa-chart-line" style="color:#10b981;"></i> 转换趋势</div>
+        <canvas id="trendChart"></canvas>
+    </div>
+</div>
+
+<!-- 模式明细表 -->
+<div class="mode-table-wrap chart-card">
+    <div class="chart-title"><i class="fas fa-list-alt" style="color:#f59e0b;"></i> 模式明细</div>
+    <div style="overflow-x: auto;">
+        <table class="mode-table" id="modeDetailTable">
+            <thead>
+                <tr>
+                    <th>转换模式</th>
+                    <th>总次数</th>
+                    <th>成功</th>
+                    <th>失败</th>
+                    <th>成功率</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for m in by_mode %}
+                <tr>
+                    <td><span class="mode-badge" style="background: rgba(102,126,234,.1); color: #667eea;">{{ m.mode }}</span></td>
+                    <td><strong>{{ m.count }}</strong></td>
+                    <td style="color: #10b981;">{{ m.success_count }}</td>
+                    <td style="color: #ef4444;">{{ m.fail_count }}</td>
+                    <td>
+                        {% set mr = (m.success_count / m.count * 100) if m.count > 0 else 0 %}
+                        <span style="font-size: 12px;">{{ "%.0f"|format(mr) }}%</span>
+                        <div class="rate-bar-wrap"><div class="rate-bar-fill" style="width: {{ mr }}%;"></div></div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% else %}
+<!-- 空状态 -->
+<div class="empty-state">
+    <i class="fas fa-chart-bar"></i>
+    <p>还没有转换记录</p>
+    <a href="{{ url_for('converter.index') }}"><i class="fas fa-arrow-right"></i> 去转换文件</a>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+$(document).ready(function() {
+    var currentCharts = {};
+
+    function destroyCharts() {
+        Object.values(currentCharts).forEach(function(c) { if (c) c.destroy(); });
+        currentCharts = {};
+    }
+
+    function renderCharts(stats, byMode, trend) {
+        destroyCharts();
+
+        // 成功/失败 环形图
+        var doughnutCtx = document.getElementById('successRateChart');
+        if (doughnutCtx) {
+            currentCharts.doughnut = new Chart(doughnutCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['成功', '失败'],
+                    datasets: [{
+                        data: [stats.success_count || 0, stats.fail_count || 0],
+                        backgroundColor: ['#10b981', '#ef4444'],
+                        borderWidth: 3,
+                        borderColor: 'var(--bg-card)'
+                    }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: true,
+                    plugins: {
+                        legend: { position: 'bottom', labels: { padding: 16, usePointStyle: true, font: { size: 12 } } }
+                    },
+                    cutout: '60%'
+                }
+            });
+        }
+
+        // 按模式柱状图
+        var barCtx = document.getElementById('modeBarChart');
+        if (barCtx && byMode.length > 0) {
+            var modeLabels = byMode.map(function(m) { return m.mode; });
+            var modeSuccess = byMode.map(function(m) { return m.success_count; });
+            var modeFail = byMode.map(function(m) { return m.fail_count; });
+
+            currentCharts.bar = new Chart(barCtx, {
+                type: 'bar',
+                data: {
+                    labels: modeLabels,
+                    datasets: [
+                        { label: '成功', data: modeSuccess, backgroundColor: '#10b981', borderRadius: 4 },
+                        { label: '失败', data: modeFail, backgroundColor: '#ef4444', borderRadius: 4 }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: true,
+                    plugins: { legend: { labels: { usePointStyle: true, padding: 12, font: { size: 11 } } } },
+                    scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true, ticks: { stepSize: 1 } } }
+                }
+            });
+        }
+
+        // 趋势折线图
+        var trendCtx = document.getElementById('trendChart');
+        if (trendCtx && trend.length > 0) {
+            var tLabels = trend.map(function(t) { return t.day; });
+            var tSuccess = trend.map(function(t) { return t.success_count; });
+            var tFail = trend.map(function(t) { return t.fail_count; });
+
+            currentCharts.trend = new Chart(trendCtx, {
+                type: 'line',
+                data: {
+                    labels: tLabels,
+                    datasets: [
+                        { label: '成功', data: tSuccess, borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,.08)', fill: true, tension: .3, pointRadius: 4 },
+                        { label: '失败', data: tFail, borderColor: '#ef4444', backgroundColor: 'rgba(239,68,68,.08)', fill: true, tension: .3, pointRadius: 4 }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: true,
+                    plugins: { legend: { labels: { usePointStyle: true, padding: 16, font: { size: 11 } } } },
+                    scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } }
+                }
+            });
+        }
+    }
+
+    // 初始渲染
+    {% if stats and stats.total > 0 %}
+    renderCharts(
+        {{ stats | tojson }},
+        {{ by_mode | tojson }},
+        {{ trend | tojson }}
+    );
+    {% endif %}
+
+    // 筛选器切换
+    $('#modeFilter, #trendDays').on('change', function() {
+        var mode = $('#modeFilter').val();
+        var days = $('#trendDays').val();
+
+        $.get('{{ url_for("converter.api_dashboard_stats") }}', {
+            mode: mode,
+            days: days
+        }, function(res) {
+            if (!res.success) return;
+            var s = res.stats;
+            var rate = s.total > 0 ? (s.success_count / s.total * 100).toFixed(1) : 0;
+
+            $('#statTotal').text(s.total);
+            $('#statSuccess').text(s.success_count);
+            $('#statFail').text(s.fail_count);
+            $('#statRate').text(rate + '%');
+
+            // 重建模式明细表
+            var tbody = '';
+            res.by_mode.forEach(function(m) {
+                var mr = m.count > 0 ? (m.success_count / m.count * 100).toFixed(0) : 0;
+                tbody += '<tr>' +
+                    '<td><span class="mode-badge" style="background:rgba(102,126,234,.1);color:#667eea;">' + escapeHtml(m.mode) + '</span></td>' +
+                    '<td><strong>' + m.count + '</strong></td>' +
+                    '<td style="color:#10b981;">' + m.success_count + '</td>' +
+                    '<td style="color:#ef4444;">' + m.fail_count + '</td>' +
+                    '<td><span style="font-size:12px;">' + mr + '%</span>' +
+                    '<div class="rate-bar-wrap"><div class="rate-bar-fill" style="width:' + mr + '%;"></div></div></td>' +
+                    '</tr>';
+            });
+            $('#modeDetailTable tbody').html(tbody);
+
+            renderCharts(s, res.by_mode, res.trend);
+        });
+    });
+});
+</script>
+{% endblock %}

@@ -22,7 +22,9 @@ MODE_LIST = [
     'csv转excel', 'excel转csv', 'PDF OCR识别', '图片OCR识别',
     '图片转ppt', 'pdf合并', 'md转pdf', 'excel转pdf', 'ppt转pdf', 'html转pdf',
     'pdf加密', 'pdf解密',
-    '文件压缩', '文件解压', '压缩包解密'
+    '文件压缩', '文件解压', '压缩包解密',
+    'pdf转ppt', 'ppt转word', 'pdf转html', 'md转html', '图片格式互转',
+    'pdf压缩', 'pdf分割', 'pdf转excel', '图片压缩', '文字转语音'
 ]
 
 MODE_INPUT_TYPE = {
@@ -45,6 +47,16 @@ MODE_INPUT_TYPE = {
     '文件压缩': 'files',
     '文件解压': 'file',
     '压缩包解密': 'file',
+    'pdf转ppt': 'file',
+    'ppt转word': 'file',
+    'pdf转html': 'file',
+    'md转html': 'file',
+    '图片格式互转': 'file',
+    'pdf压缩': 'file',
+    'pdf分割': 'file',
+    'pdf转excel': 'file',
+    '图片压缩': 'file',
+    '文字转语音': 'file',
 }
 
 MODE_EXTENSIONS = {
@@ -67,6 +79,16 @@ MODE_EXTENSIONS = {
     '文件压缩': None,
     '文件解压': '.zip,.tar.gz,.tgz,.tar,.7z',
     '压缩包解密': '.zip,.7z',
+    'pdf转ppt': '.pdf',
+    'ppt转word': '.pptx,.ppt',
+    'pdf转html': '.pdf',
+    'md转html': '.md',
+    '图片格式互转': '.jpg,.jpeg,.png,.webp,.bmp,.gif,.tiff',
+    'pdf压缩': '.pdf',
+    'pdf分割': '.pdf',
+    'pdf转excel': '.pdf',
+    '图片压缩': '.jpg,.jpeg,.png,.webp,.bmp,.gif,.tiff',
+    '文字转语音': '.txt',
 }
 
 MODE_OUTPUT_EXT = {
@@ -89,6 +111,16 @@ MODE_OUTPUT_EXT = {
     '文件压缩': '.zip',
     '文件解压': '.zip',
     '压缩包解密': '.zip',
+    'pdf转ppt': '.pptx',
+    'ppt转word': '.docx',
+    'pdf转html': '.html',
+    'md转html': '.html',
+    '图片格式互转': None,
+    'pdf压缩': '.pdf',
+    'pdf分割': '.pdf',
+    'pdf转excel': '.xlsx',
+    '图片压缩': None,
+    '文字转语音': '.mp3',
 }
 
 MODE_TO_FUNCTION = {
@@ -108,6 +140,16 @@ MODE_TO_FUNCTION = {
     'html转pdf': 'html_to_pdf',
     'pdf加密': 'pdf_encrypt',
     'pdf解密': 'pdf_decrypt',
+    'pdf转ppt': 'pdf_to_ppt',
+    'ppt转word': 'ppt_to_word',
+    'pdf转html': 'pdf_to_html',
+    'md转html': 'md_to_html',
+    '图片格式互转': 'image_convert',
+    'pdf压缩': 'pdf_compress',
+    'pdf分割': 'pdf_split',
+    'pdf转excel': 'pdf_to_excel',
+    '图片压缩': 'image_compress',
+    '文字转语音': 'txt_to_speech',
 }
 
 # 各模式最大文件数
@@ -138,7 +180,7 @@ def _validate_uploaded_file(file, mode: str) -> str | None:
     name_without_ext, dot, ext = file.filename.rpartition('.')
     if '.' in name_without_ext:
         inner_ext = name_without_ext.rsplit('.', 1)[1].lower()
-        allowed_exts = {'docx', 'pdf', 'jpg', 'jpeg', 'png', 'bmp', 'gif', 'tiff',
+        allowed_exts = {'docx', 'pdf', 'jpg', 'jpeg', 'png', 'bmp', 'gif', 'tiff', 'webp',
                         'csv', 'xlsx', 'xls', 'pptx', 'ppt', 'txt', 'md', 'html', 'htm'}
         if inner_ext in allowed_exts and inner_ext != ext.lower():
             return '检测到文件扩展名伪装，已拒绝'
@@ -543,6 +585,232 @@ def convert():
             result = Function.decrypt_archive(input_paths[0], output_path, password)
             result_message = '已去除密码保护'
 
+        elif mode == '图片格式互转':
+            target_fmt = request.form.get('target_format', 'png').strip().lower()
+            valid_fmts = ('jpg', 'jpeg', 'png', 'webp', 'bmp', 'gif', 'tiff')
+            if target_fmt not in valid_fmts:
+                return jsonify({'success': False, 'message': f'不支持的目标格式，可选：{", ".join(valid_fmts)}'})
+            output_ext = '.jpg' if target_fmt == 'jpeg' else f'.{target_fmt}'
+
+            output_paths = []
+            failed_files = []
+            for i, input_path in enumerate(input_paths):
+                orig_name = original_filenames[i] if i < len(original_filenames) else os.path.basename(input_path)
+                base_name, _ = os.path.splitext(orig_name)
+                output_path = os.path.join(Config.OUTPUT_FOLDER, f'{task_id}_{base_name}_转{target_fmt.upper()}{output_ext}')
+
+                try:
+                    single_result = Function.image_convert(input_path, output_path, target_fmt)
+                    if single_result and os.path.exists(output_path):
+                        output_paths.append(output_path)
+                    else:
+                        failed_files.append(orig_name)
+                except Exception as conv_err:
+                    logger.error("图片格式互转失败 | file=%s err=%s", orig_name, conv_err)
+                    failed_files.append(orig_name)
+
+            if not output_paths:
+                result = False
+            else:
+                result = True
+                if len(output_paths) == 1:
+                    output_path = output_paths[0]
+                else:
+                    zip_name = f'{task_id}_转换结果.zip'
+                    zip_path = os.path.join(Config.OUTPUT_FOLDER, zip_name)
+                    try:
+                        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                            for out_path in output_paths:
+                                zipf.write(out_path, os.path.basename(out_path))
+                        output_path = zip_path
+                    except Exception:
+                        return jsonify({'success': False, 'message': '文件打包失败，请重试'})
+
+                if failed_files:
+                    result_message = f'成功 {len(output_paths)} 个，失败: {", ".join(failed_files)}'
+                else:
+                    result_message = '转换成功'
+
+        elif mode == 'pdf压缩':
+            quality = request.form.get('quality', 'medium').strip().lower()
+            if quality not in ('low', 'medium', 'high'):
+                return jsonify({'success': False, 'message': '无效的压缩等级，可选：low/medium/high'})
+
+            output_paths = []
+            failed_files = []
+            for i, input_path in enumerate(input_paths):
+                orig_name = original_filenames[i] if i < len(original_filenames) else os.path.basename(input_path)
+                base_name, _ = os.path.splitext(orig_name)
+                output_path = os.path.join(Config.OUTPUT_FOLDER, f'{task_id}_{base_name}_压缩.pdf')
+
+                try:
+                    single_result = Function.pdf_compress(input_path, output_path, quality)
+                    if single_result and os.path.exists(output_path):
+                        output_paths.append(output_path)
+                    else:
+                        failed_files.append(orig_name)
+                except Exception as conv_err:
+                    logger.error("PDF压缩失败 | file=%s err=%s", orig_name, conv_err)
+                    failed_files.append(orig_name)
+
+            if not output_paths:
+                result = False
+            else:
+                result = True
+                if len(output_paths) == 1:
+                    output_path = output_paths[0]
+                else:
+                    zip_name = f'{task_id}_转换结果.zip'
+                    zip_path = os.path.join(Config.OUTPUT_FOLDER, zip_name)
+                    try:
+                        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                            for out_path in output_paths:
+                                zipf.write(out_path, os.path.basename(out_path))
+                        output_path = zip_path
+                    except Exception:
+                        return jsonify({'success': False, 'message': '文件打包失败，请重试'})
+
+                if failed_files:
+                    result_message = f'成功 {len(output_paths)} 个，失败: {", ".join(failed_files)}'
+                else:
+                    result_message = '压缩成功'
+
+        elif mode == 'pdf分割':
+            page_range = request.form.get('page_range', '').strip()
+            if not page_range:
+                return jsonify({'success': False, 'message': '请输入页码范围，如 1-3,5,7-10'})
+
+            output_paths = []
+            failed_files = []
+            for i, input_path in enumerate(input_paths):
+                orig_name = original_filenames[i] if i < len(original_filenames) else os.path.basename(input_path)
+                base_name, _ = os.path.splitext(orig_name)
+                output_path = os.path.join(Config.OUTPUT_FOLDER, f'{task_id}_{base_name}_提取.pdf')
+
+                try:
+                    split_result = Function.pdf_split(input_path, output_path, page_range)
+                    if split_result and os.path.exists(output_path):
+                        total_p, extracted_p = split_result
+                        output_paths.append(output_path)
+                    else:
+                        failed_files.append(orig_name)
+                except Exception as conv_err:
+                    logger.error("PDF分割失败 | file=%s err=%s", orig_name, conv_err)
+                    failed_files.append(orig_name)
+
+            if not output_paths:
+                result = False
+            else:
+                result = True
+                if len(output_paths) == 1:
+                    output_path = output_paths[0]
+                else:
+                    zip_name = f'{task_id}_转换结果.zip'
+                    zip_path = os.path.join(Config.OUTPUT_FOLDER, zip_name)
+                    try:
+                        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                            for out_path in output_paths:
+                                zipf.write(out_path, os.path.basename(out_path))
+                        output_path = zip_path
+                    except Exception:
+                        return jsonify({'success': False, 'message': '文件打包失败，请重试'})
+
+                if failed_files:
+                    result_message = f'成功 {len(output_paths)} 个，失败: {", ".join(failed_files)}'
+                else:
+                    result_message = '提取成功'
+
+        elif mode == '图片压缩':
+            img_quality = request.form.get('img_quality', '75')
+            try:
+                img_quality = int(img_quality)
+                if not 1 <= img_quality <= 100:
+                    raise ValueError
+            except ValueError:
+                return jsonify({'success': False, 'message': '压缩质量参数无效，请输入 1-100 的整数'})
+
+            output_paths = []
+            failed_files = []
+            for i, input_path in enumerate(input_paths):
+                orig_name = original_filenames[i] if i < len(original_filenames) else os.path.basename(input_path)
+                base_name, ext = os.path.splitext(orig_name)
+                # 保持原格式或转为 jpg
+                out_ext = ext if ext.lower() in ('.jpg', '.jpeg', '.png', '.webp') else '.jpg'
+                output_path = os.path.join(Config.OUTPUT_FOLDER, f'{task_id}_{base_name}_压缩{out_ext}')
+
+                try:
+                    single_result = Function.image_compress(input_path, output_path, img_quality)
+                    if single_result and os.path.exists(output_path):
+                        output_paths.append(output_path)
+                    else:
+                        failed_files.append(orig_name)
+                except Exception as conv_err:
+                    logger.error("图片压缩失败 | file=%s err=%s", orig_name, conv_err)
+                    failed_files.append(orig_name)
+
+            if not output_paths:
+                result = False
+            else:
+                result = True
+                if len(output_paths) == 1:
+                    output_path = output_paths[0]
+                else:
+                    zip_name = f'{task_id}_转换结果.zip'
+                    zip_path = os.path.join(Config.OUTPUT_FOLDER, zip_name)
+                    try:
+                        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                            for out_path in output_paths:
+                                zipf.write(out_path, os.path.basename(out_path))
+                        output_path = zip_path
+                    except Exception:
+                        return jsonify({'success': False, 'message': '文件打包失败，请重试'})
+
+                if failed_files:
+                    result_message = f'成功 {len(output_paths)} 个，失败: {", ".join(failed_files)}'
+                else:
+                    result_message = '压缩成功'
+
+        elif mode == '文字转语音':
+            voice = request.form.get('voice', 'zh-CN-XiaoxiaoNeural').strip()
+            rate = request.form.get('rate', '+0%').strip()
+
+            output_paths = []
+            failed_files = []
+            for i, input_path in enumerate(input_paths):
+                orig_name = original_filenames[i] if i < len(original_filenames) else os.path.basename(input_path)
+                base_name, _ = os.path.splitext(orig_name)
+                output_path = os.path.join(Config.OUTPUT_FOLDER, f'{task_id}_{base_name}.mp3')
+                try:
+                    single_result = Function.txt_to_speech(input_path, output_path, voice=voice, rate=rate)
+                    if single_result and os.path.exists(output_path):
+                        output_paths.append(output_path)
+                    else:
+                        failed_files.append(orig_name)
+                except Exception as conv_err:
+                    logger.error("文字转语音失败 | file=%s err=%s", orig_name, conv_err)
+                    failed_files.append(orig_name)
+
+            if not output_paths:
+                result = False
+            else:
+                result = True
+                if len(output_paths) == 1:
+                    output_path = output_paths[0]
+                else:
+                    zip_name = f'{task_id}_转换结果.zip'
+                    zip_path = os.path.join(Config.OUTPUT_FOLDER, zip_name)
+                    try:
+                        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                            for out_path in output_paths:
+                                zipf.write(out_path, os.path.basename(out_path))
+                        output_path = zip_path
+                    except Exception:
+                        return jsonify({'success': False, 'message': '文件打包失败，请重试'})
+                if failed_files:
+                    result_message = f'成功 {len(output_paths)} 个，失败: {", ".join(failed_files)}'
+                else:
+                    result_message = '转换成功'
+
         elif input_type == 'directory':
             dir_name = os.path.basename(input_paths[0]) if input_paths else task_id
             output_path = os.path.join(
@@ -690,6 +958,16 @@ def convert():
                 'excel转pdf': 'Excel 转 PDF 失败，请检查文件格式',
                 'ppt转pdf': 'PPT 转 PDF 失败，请检查文件格式',
                 'html转pdf': 'HTML 转 PDF 失败，请检查文件格式',
+                'pdf转ppt': 'PDF 转 PPT 失败，请检查文件是否损坏',
+                'ppt转word': 'PPT 转 Word 失败，请检查文件格式',
+                'pdf转html': 'PDF 转 HTML 失败，请检查文件是否损坏',
+                'md转html': 'Markdown 转 HTML 失败，请检查文件格式',
+                '图片格式互转': '图片格式转换失败，请检查图片是否损坏',
+                'pdf压缩': 'PDF 压缩失败，请检查文件是否损坏',
+                'pdf分割': 'PDF 分割失败，请检查页码范围是否正确',
+                'pdf转excel': 'PDF 转 Excel 失败，文件中可能没有可提取的表格',
+                '图片压缩': '图片压缩失败，请检查图片是否损坏',
+                '文字转语音': '文字转语音失败，请检查文本内容或网络连接',
             }
             return jsonify({'success': False, 'message': error_msgs.get(mode, '转换失败，请检查文件格式或联系管理员')})
 
@@ -809,6 +1087,57 @@ def user_unread_replies():
 
     count = DatabaseManager.get_unread_reply_count(username, visit_time)
     return jsonify({'count': count})
+
+
+@converter_bp.route('/dashboard')
+def dashboard():
+    """用户仪表盘页面"""
+    if 'username' not in session:
+        return redirect(url_for('auth.login'))
+
+    username = session['username']
+
+    # 获取统计数据
+    stats_success, stats, by_mode = DatabaseManager.get_user_dashboard_stats(username)
+    trend_success, trend = DatabaseManager.get_conversion_trend(days=7, username=username)
+    all_modes = DatabaseManager.get_all_modes()
+
+    # 获取用户信息
+    user = DatabaseManager.get_user_by_username(username)
+
+    return render_template(
+        'dashboard.html',
+        user=user,
+        stats=stats if stats_success else {'total': 0, 'success_count': 0, 'fail_count': 0},
+        by_mode=by_mode if stats_success else [],
+        trend=trend if trend_success else [],
+        all_modes=all_modes
+    )
+
+
+@converter_bp.route('/api/dashboard_stats')
+def api_dashboard_stats():
+    """API: 获取用户仪表盘统计数据（支持模式筛选）"""
+    if 'username' not in session:
+        return jsonify({'success': False, 'message': '请先登录'})
+
+    username = session['username']
+    mode_filter = request.args.get('mode', '').strip() or None
+    days = request.args.get('days', 7, type=int)
+
+    stats_success, stats, by_mode = DatabaseManager.get_user_dashboard_stats(
+        username, mode_filter=mode_filter
+    )
+    trend_success, trend = DatabaseManager.get_conversion_trend(
+        days=days, username=username
+    )
+
+    return jsonify({
+        'success': stats_success and trend_success,
+        'stats': stats,
+        'by_mode': by_mode,
+        'trend': trend
+    })
 
 
 @converter_bp.route('/my_logs')
