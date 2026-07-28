@@ -1,4 +1,5 @@
 import hashlib
+import hmac
 import os
 import re
 import threading
@@ -128,9 +129,17 @@ class DatabaseManager:
 
     @classmethod
     def shutdown_pool(cls):
-        """关闭连接池"""
+        """关闭连接池（释放所有池内连接）"""
         if cls._cnx_pool:
             try:
+                # 尝试逐一关闭池中所有活跃连接
+                if hasattr(cls._cnx_pool, '_cnx_queue'):
+                    while not cls._cnx_pool._cnx_queue.empty():
+                        try:
+                            conn = cls._cnx_pool._cnx_queue.get_nowait()
+                            conn.close()
+                        except Exception:
+                            pass
                 cls._cnx_pool = None
             except Exception:
                 pass
@@ -167,7 +176,7 @@ class DatabaseManager:
             try:
                 int(stored_hash, 16)
                 old_hash = hashlib.sha256((password + (salt or '')).encode()).hexdigest()
-                if secrets_compare(old_hash, stored_hash):
+                if hmac.compare_digest(old_hash, stored_hash):
                     return True, True  # 需要升级
             except ValueError:
                 pass
@@ -266,10 +275,10 @@ class DatabaseManager:
                         "ALTER TABLE conversion_logs ADD INDEX idx_user_time (username, operation_time)",
                         "ALTER TABLE conversion_logs ADD COLUMN output_path VARCHAR(500) DEFAULT '' AFTER message"
                     ]:
-                        try: cursor.execute(stmt)
-                        except Error: pass
-                        try: cursor.fetchall()
-                        except: pass
+                        try:
+                            cursor.execute(stmt)
+                        except Error:
+                            pass
 
                 # --- 公告表 ---
                 cursor.execute("SHOW TABLES LIKE 'announcements'")
@@ -325,17 +334,18 @@ class DatabaseManager:
                     ]:
                         cursor.execute(f"SHOW COLUMNS FROM ip_access_logs LIKE '{col}'")
                         if not cursor.fetchone():
-                            cursor.execute(f"ALTER TABLE ip_access_logs ADD COLUMN {col} {col_type}")
-                            try: cursor.fetchall()
-                            except: pass
+                            try:
+                                cursor.execute(f"ALTER TABLE ip_access_logs ADD COLUMN {col} {col_type}")
+                            except Error:
+                                pass
                     for stmt in [
                         "ALTER TABLE ip_access_logs ADD INDEX idx_ip_time (ip_address, access_time)",
                         "ALTER TABLE ip_access_logs ADD INDEX idx_access_time_loc (access_time, latitude, longitude)"
                     ]:
-                        try: cursor.execute(stmt)
-                        except Error: pass
-                        try: cursor.fetchall()
-                        except: pass
+                        try:
+                            cursor.execute(stmt)
+                        except Error:
+                            pass
 
                 # --- IP黑名单表 ---
                 cursor.execute("SHOW TABLES LIKE 'ip_blacklist'")
@@ -359,10 +369,10 @@ class DatabaseManager:
                     for stmt in [
                         "ALTER TABLE ip_blacklist ADD INDEX idx_active_expires (is_active, expires_at)"
                     ]:
-                        try: cursor.execute(stmt)
-                        except Error: pass
-                        try: cursor.fetchall()
-                        except: pass
+                        try:
+                            cursor.execute(stmt)
+                        except Error:
+                            pass
 
                 # --- 联系消息表 ---
                 cursor.execute("SHOW TABLES LIKE 'contact_messages'")
@@ -405,17 +415,18 @@ class DatabaseManager:
                 else:
                     cursor.execute("SHOW COLUMNS FROM contact_messages LIKE 'username'")
                     if not cursor.fetchone():
-                        cursor.execute("ALTER TABLE contact_messages ADD COLUMN username VARCHAR(50)")
-                        try: cursor.fetchall()
-                        except: pass
+                        try:
+                            cursor.execute("ALTER TABLE contact_messages ADD COLUMN username VARCHAR(50)")
+                        except Error:
+                            pass
                     for stmt in [
                         "ALTER TABLE contact_messages ADD INDEX idx_username (username)",
                         "ALTER TABLE contact_messages ADD INDEX idx_username_created (username, created_at)"
                     ]:
-                        try: cursor.execute(stmt)
-                        except Error: pass
-                        try: cursor.fetchall()
-                        except: pass
+                        try:
+                            cursor.execute(stmt)
+                        except Error:
+                            pass
 
                 # --- 登录失败记录表（用于限流） ---
                 cursor.execute("SHOW TABLES LIKE 'login_attempts'")
@@ -467,8 +478,8 @@ class DatabaseManager:
                     # 如果管理员已存在，检查是否需要升级密码哈希
                     stored_hash = admin_exists[2]  # password 列
                     stored_salt = admin_exists[3]   # salt 列
-                    is_old, _ = DatabaseManager._check_password(ADMIN_PASSWORD, stored_hash, stored_salt)
-                    if is_old:
+                    _, needs_upgrade = DatabaseManager._check_password(ADMIN_PASSWORD, stored_hash, stored_salt)
+                    if needs_upgrade:
                         # 升级管理员密码哈希
                         new_hash = DatabaseManager._hash_password(ADMIN_PASSWORD)
                         cursor.execute(
@@ -1198,8 +1209,11 @@ class DatabaseManager:
                 cursor.close()
                 is_blocked = result is not None
                 with DatabaseManager._ip_blocked_cache_lock:
+                    # 如果缓存已过期，先清空旧条目再写入新数据
+                    if now - DatabaseManager._ip_blocked_cache_time >= Config.IP_BLOCKED_CACHE_TIME:
+                        DatabaseManager._ip_blocked_cache.clear()
+                        DatabaseManager._ip_blocked_cache_time = now
                     DatabaseManager._ip_blocked_cache[ip_address] = (is_blocked, result)
-                    DatabaseManager._ip_blocked_cache_time = now
                 return is_blocked, result
         except Error as e:
             logger.error("检查IP黑名单错误: %s", e)
@@ -2095,14 +2109,4 @@ class DatabaseManager:
         return False, None
 
 
-# ==============================
-# 常量时间字符串比较（防时序攻击）
-# ==============================
-def secrets_compare(a: str, b: str) -> bool:
-    """常量时间字符串比较"""
-    if len(a) != len(b):
-        return False
-    result = 0
-    for x, y in zip(a, b):
-        result |= ord(x) ^ ord(y)
-    return result == 0
+

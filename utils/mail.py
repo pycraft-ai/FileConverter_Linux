@@ -14,6 +14,7 @@ def send_verify_code(to_email: str, code: str) -> bool:
         logger.warning("未配置 SMTP，跳过发送")
         return False
 
+    server = None
     try:
         msg = MIMEText(
             f'<div style="max-width:480px;margin:0 auto;font-family:Arial,sans-serif;">'
@@ -37,9 +38,14 @@ def send_verify_code(to_email: str, code: str) -> bool:
 
         server.login(Config.MAIL_USER, Config.MAIL_PASSWORD)
         server.sendmail(Config.MAIL_USER, [to_email], msg.as_string())
-        server.quit()
         logger.info("验证码已发送至 %s", to_email)
         return True
     except Exception as e:
         logger.error("邮件发送失败: %s", e)
         return False
+    finally:
+        if server:
+            try:
+                server.quit()
+            except Exception:
+                pass

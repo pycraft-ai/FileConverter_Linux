@@ -207,8 +207,6 @@ def register():
             logger.warning("用户注册失败 | user=%s email=%s reason=%s", username, email, msg)
             flash(msg, 'error')
             return render_template('register.html', form=form_data)
-            flash(msg, 'error')
-            return render_template('register.html', form=form_data)
 
     return render_template('register.html', form=form_data)
 
@@ -246,7 +244,7 @@ def forgot_password():
         if email != saved_email:
             flash('邮箱与验证码不匹配，请重新获取', 'error')
             return render_template('forgot_password.html', form={'email': email})
-        if now - code_time > 300:
+        if now - code_time > Config.VERIFY_CODE_EXPIRE:
             flash('验证码已过期，请重新获取', 'error')
             session.pop('verify_code', None)
             session.pop('verify_code_email', None)

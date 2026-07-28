@@ -17,6 +17,9 @@ python-dotenv
 py7zr
 pyzipper
 
+# Excel 读写
+openpyxl
+
 # PDF 表格提取
 pdfplumber
 

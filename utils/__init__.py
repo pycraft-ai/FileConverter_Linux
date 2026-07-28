@@ -202,10 +202,9 @@ _PDF_DANGEROUS_PATTERNS = [
 _EXECUTABLE_SIGNATURES = [
     (0, b'MZ'),                  # Windows PE/EXE/DLL
     (0, b'\x7FELF'),             # Linux ELF
-    (0, b'\xCF\xFA\xED\xFE'),    # Mach-O (macOS)
-    (0, b'\xFE\xED\xFA\xCE'),    # Mach-O (反向字节序)
+    (0, b'\xCF\xFA\xED\xFE'),    # Mach-O 64-bit (反向字节序)
+    (0, b'\xFE\xED\xFA\xCE'),    # Mach-O 32-bit
     (0, b'\xFE\xED\xFA\xCF'),    # Mach-O 64-bit
-    (0, b'\xCF\xFA\xED\xFE'),    # Mach-O 64-bit (反向)
     (0, b'#!'),                  # Shell script
     (0, b'\xCA\xFE\xBA\xBE'),    # Java class
 ]

@@ -71,6 +71,10 @@ log_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix='log_writer'
 def cleanup():
     """应用退出时清理资源"""
     try:
+        _stop_periodic_cleanup()
+    except Exception:
+        pass
+    try:
         log_executor.shutdown(wait=True, timeout=5)
     except Exception:
         pass
@@ -101,18 +105,54 @@ def _should_skip_log(path):
 
 @atexit.register
 def cleanup_old_files():
-    """清理超时的上传/输出文件"""
-    import glob
+    """清理超时的上传/输出文件（含子目录）"""
+    _do_cleanup_old_files()
+
+
+_cleanup_event = None  # 用于通知清理线程退出
+
+
+def _do_cleanup_old_files():
+    """执行一次文件清理"""
+    import shutil
     ttl = Config.FILE_CLEANUP_TTL
     now = time.time()
     for folder in [Config.UPLOAD_FOLDER, Config.OUTPUT_FOLDER]:
-        if os.path.isdir(folder):
-            for f in glob.glob(os.path.join(folder, '*')):
-                try:
-                    if os.path.isfile(f) and now - os.path.getmtime(f) > ttl:
-                        os.remove(f)
-                except Exception:
-                    pass
+        if not os.path.isdir(folder):
+            continue
+        for entry in os.listdir(folder):
+            entry_path = os.path.join(folder, entry)
+            try:
+                if os.path.isfile(entry_path) and now - os.path.getmtime(entry_path) > ttl:
+                    os.remove(entry_path)
+                elif os.path.isdir(entry_path) and now - os.path.getmtime(entry_path) > ttl:
+                    shutil.rmtree(entry_path, ignore_errors=True)
+            except Exception:
+                pass
+
+
+def _start_periodic_cleanup():
+    """启动后台定时清理线程（每小时执行一次）"""
+    import threading
+    global _cleanup_event
+    _cleanup_event = threading.Event()
+
+    def _loop():
+        while not _cleanup_event.wait(3600):  # 每小时检查一次
+            try:
+                _do_cleanup_old_files()
+            except Exception:
+                pass
+
+    t = threading.Thread(target=_loop, daemon=True, name='file_cleanup')
+    t.start()
+
+
+def _stop_periodic_cleanup():
+    """停止后台清理线程"""
+    global _cleanup_event
+    if _cleanup_event:
+        _cleanup_event.set()
 
 
 @app.before_request
@@ -201,6 +241,10 @@ if __name__ == '__main__':
     logger.info("正在初始化数据库...")
     DatabaseManager.initialize_database()
     logger.info("数据库初始化完成")
+
+    # 启动后台定时文件清理（每小时执行一次）
+    _start_periodic_cleanup()
+    logger.info("后台文件清理任务已启动（间隔 1 小时）")
 
     debug_mode = os.environ.get('FLASK_DEBUG', '0') == '1'
     port = int(os.environ.get('PORT', 5000))

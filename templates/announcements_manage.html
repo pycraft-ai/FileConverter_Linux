@@ -183,74 +183,9 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
-$(document).ready(function() {
-    // 发布公告
-    $('#announcementForm').submit(function(e) {
-        e.preventDefault();
-        
-        const title = $('#announceTitle').val().trim();
-        const content = $('#announceContent').val().trim();
-        const type = $('#announceType').val();
-        const priority = $('#announcePriority').val();
-        
-        if (!title || !content) {
-            showAdminToast('标题和内容不能为空', false);
-            return;
-        }
-        
-        $.post('{{ url_for("admin.create_announcement") }}', {
-            title: title,
-            content: content,
-            type: type,
-            priority: priority
-        }, function(response) {
-            showAdminToast(response.message, response.success);
-            if (response.success) {
-                setTimeout(() => location.reload(), 1000);
-            }
-        });
-    });
-    
-    // 切换公告状态
-    $('.toggle-btn').click(function() {
-        const id = $(this).data('id');
-        if (!confirm('确认要切换此公告的状态吗？')) return;
-        
-        $.post('{{ url_for("admin.toggle_announcement") }}', {
-            id: id
-        }, function(response) {
-            showAdminToast(response.message, response.success);
-            if (response.success) {
-                setTimeout(() => location.reload(), 1000);
-            }
-        });
-    });
-    
-    // 删除公告
-    $('.delete-btn').click(function() {
-        const id = $(this).data('id');
-        if (!confirm('确认要删除此公告吗？此操作不可恢复！')) return;
-        
-        $.post('{{ url_for("admin.delete_announcement") }}', {
-            id: id
-        }, function(response) {
-            showAdminToast(response.message, response.success);
-            if (response.success) {
-                setTimeout(() => location.reload(), 1000);
-            }
-        });
-    });
-    
-    function showAdminToast(msg, success) {
-        const icon = success ? 'check-circle' : 'exclamation-circle';
-        const cls = success ? 'success' : 'danger';
-        const $alert = $('<div class="alert alert-' + cls + ' alert-dismissible fade show position-fixed top-0 start-50 translate-middle-x mt-5" style="z-index:99999;">' +
-            '<i class="fas fa-' + icon + ' me-2"></i>' + msg +
-            '<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>');
-        $('body').append($alert);
-        setTimeout(() => $alert.alert('close'), 3000);
-    }
-});
-</script>
+<div id="announceManage"
+     data-announce-create-url="{{ url_for('admin.create_announcement') }}"
+     data-announce-toggle-url="{{ url_for('admin.toggle_announcement') }}"
+     data-announce-delete-url="{{ url_for('admin.delete_announcement') }}"></div>
+<script src="{{ url_for('static', filename='js/announcements.js') }}"></script>
 {% endblock %}

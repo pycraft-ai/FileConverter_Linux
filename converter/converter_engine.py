@@ -49,6 +49,15 @@ class TimeoutError(Exception):
     pass
 
 
+# LibreOffice 26.x 过滤器名称映射（简单扩展名 → 完整过滤器名）
+# pdf 和 html 简写兼容，pptx/docx/xlsx 必须使用完整格式
+_LO_FILTER_MAP = {
+    'pptx': 'pptx:Impress MS PowerPoint 2007 XML',
+    'docx': 'docx:MS Word 2007 XML',
+    'xlsx': 'xlsx:Calc MS Excel 2007 XML',
+}
+
+
 def _libreoffice_convert(input_path, output_dir, convert_filter=None):
     """
     使用 LibreOffice 进行文件格式转换（WSL/Linux 替代 COM 方案）
@@ -59,7 +68,7 @@ def _libreoffice_convert(input_path, output_dir, convert_filter=None):
     Args:
         input_path: 源文件路径
         output_dir: 输出目录
-        convert_filter: 可选的导出过滤器（如 "pdf", "docx"），默认自动识别
+        convert_filter: 可选的导出过滤器（如 "pdf", "docx"），默认 pdf
 
     Returns:
         输出文件路径，失败返回 None
@@ -69,12 +78,13 @@ def _libreoffice_convert(input_path, output_dir, convert_filter=None):
         abs_output = os.path.abspath(output_dir)
         os.makedirs(abs_output, exist_ok=True)
 
-        cmd = ['libreoffice', '--headless', '--norestore']
-        if convert_filter:
-            cmd.extend(['--convert-to', convert_filter])
-        else:
-            cmd.extend(['--convert-to', 'pdf'])
-        cmd.extend(['--outdir', abs_output, abs_input])
+        # 解析过滤器名称（兼容 LibreOffice 26.x）
+        raw_filter = convert_filter or 'pdf'
+        actual_filter = _LO_FILTER_MAP.get(raw_filter, raw_filter)
+
+        cmd = ['libreoffice', '--headless', '--norestore',
+               '--convert-to', actual_filter,
+               '--outdir', abs_output, abs_input]
 
         result = subprocess.run(
             cmd,
@@ -87,12 +97,13 @@ def _libreoffice_convert(input_path, output_dir, convert_filter=None):
             logger.error("LibreOffice转换失败 (ret %s): %s", result.returncode, result.stderr)
             return None
 
-        # 解析输出路径：LibreOffice 自动将扩展名替换为 .pdf
+        # 解析输出路径
         base = os.path.splitext(os.path.basename(input_path))[0]
-        if convert_filter and '.' in convert_filter:
-            out_ext = convert_filter
+        # 从过滤器名中提取扩展名（如 "pptx:Impress MS..." → "pptx"）
+        if ':' in raw_filter:
+            out_ext = raw_filter.split(':')[0]
         else:
-            out_ext = 'pdf'
+            out_ext = raw_filter
         out_file = os.path.join(abs_output, f"{base}.{out_ext}")
 
         if os.path.exists(out_file):
@@ -351,16 +362,36 @@ img {{ max-width: 100%; }}
 
     @staticmethod
     def ppt_to_word(pptPath, wordPath):
-        """PPT 转 Word（使用 LibreOffice）"""
+        """
+        PPT 转 Word（分两步：PPTX → PDF via LibreOffice → DOCX via pdf2docx）
+        LibreOffice 不支持 Imppress → Writer 直接转换，需经 PDF 中转，
+        且 PDF → DOCX 不能依赖 LibreOffice（PDF 以 Draw 模式加载），
+        因此第二步使用 pdf2docx 库。
+        """
         with _libreoffice_lock:
             try:
                 output_dir = os.path.dirname(os.path.abspath(wordPath))
-                result = _libreoffice_convert(pptPath, output_dir, 'docx')
-                if result and os.path.exists(result):
-                    if result != os.path.abspath(wordPath):
-                        shutil.move(result, wordPath)
-                    return True
-                return False
+                abs_ppt = os.path.abspath(pptPath)
+                abs_word = os.path.abspath(wordPath)
+
+                # 第一步：PPTX → PDF
+                pdf_result = _libreoffice_convert(abs_ppt, output_dir, 'pdf')
+                if not pdf_result or not os.path.exists(pdf_result):
+                    logger.error("PPT转Word失败: 第一步 PPT→PDF 转换失败")
+                    return False
+
+                # 第二步：PDF → DOCX (使用 pdf2docx，与 pdf_to_word 一致)
+                cv = Converter(pdf_result)
+                cv.convert(abs_word, start=0, end=None)
+                cv.close()
+
+                # 清理中间 PDF
+                try:
+                    os.remove(pdf_result)
+                except Exception:
+                    pass
+
+                return os.path.exists(abs_word) and os.path.getsize(abs_word) > 0
             except Exception as e:
                 logger.error("PPT转Word失败: %s", e)
                 return False
@@ -512,6 +543,7 @@ ul, ol {{ padding-left: 2em; }}
     def pdf_to_image(pdfPath, imageDir):
         """PDF 转 图片"""
         try:
+            os.makedirs(imageDir, exist_ok=True)
             pages = convert_from_path(pdfPath, 150)
             for index, img in enumerate(pages):
                 img.save(
@@ -539,7 +571,7 @@ ul, ol {{ padding-left: 2em; }}
         """Excel 转 CSV"""
         try:
             # 不强制设置 index_col，保留原始数据结构
-            data = pd.read_excel(excelPath)
+            data = pd.read_excel(excelPath, engine='openpyxl')
             data.to_csv(csvPath, encoding='utf-8', index=False)
             return True
         except Exception as e:

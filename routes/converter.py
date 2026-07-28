@@ -283,7 +283,6 @@ def convert():
     if mode not in MODE_LIST:
         logger.warning("无效的转换模式 | user=%s mode=%s", session.get('username'), repr(mode))
         return jsonify({'success': False, 'message': '无效的转换模式'})
-        return jsonify({'success': False, 'message': '无效的转换模式'})
 
     user = DatabaseManager.get_user_by_username(session['username'])
     if not user:
@@ -885,6 +884,7 @@ def convert():
             if request.form.get('dont_ask_again'):
                 session['skip_duplicate_check'] = True
 
+            deduction_failed = False
             remaining_times = None
             if login_type == 'times':
                 success, msg = DatabaseManager.decrease_user_times(
@@ -892,6 +892,7 @@ def convert():
                 )
                 if not success:
                     logger.error("扣减次数失败 | user=%s msg=%s", session['username'], msg)
+                    deduction_failed = True
                 else:
                     match = re.search(r'当前剩余 (\d+) 次', msg)
                     if match:
@@ -912,6 +913,10 @@ def convert():
             task_prefix = f'{task_id}_'
             if output_basename.startswith(task_prefix):
                 display_name = output_basename[len(task_prefix):]
+
+            # 次数扣减失败时，在前端提示用户
+            if deduction_failed:
+                result_message += '（注意：次数扣减异常，请联系管理员）'
 
             resp = {
                 'success': True,
@@ -1054,6 +1059,7 @@ def contact_reply():
 
     # 验证该消息属于当前用户
     conn = DatabaseManager.get_connection()
+    cursor = None
     try:
         cursor = conn.cursor()
         cursor.execute(
@@ -1061,12 +1067,16 @@ def contact_reply():
             (msg_id, username)
         )
         if not cursor.fetchone():
-            cursor.close()
             return jsonify({'success': False, 'message': '无权操作该消息'})
-        cursor.close()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.error("验证消息权限失败 | msg_id=%s user=%s err=%s", msg_id, username, e)
+        return jsonify({'success': False, 'message': '操作失败，请稍后重试'})
     finally:
+        if cursor:
+            try:
+                cursor.close()
+            except Exception:
+                pass
         if conn:
             DatabaseManager.return_connection(conn)
 

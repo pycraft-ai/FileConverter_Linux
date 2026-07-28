@@ -8,13 +8,6 @@ admin_bp = Blueprint('admin', __name__)
 logger = get_logger(__name__)
 
 
-def admin_required():
-    """检查是否为管理员"""
-    if 'username' not in session or not session.get('is_admin'):
-        flash('管理员权限不足', 'error')
-        return redirect(url_for('converter.index'))
-
-
 @admin_bp.route('/admin')
 def admin_panel():
     if 'username' not in session or not session.get('is_admin'):
@@ -376,6 +369,8 @@ def refresh_ip_locations():
     hours = request.form.get('hours', 24, type=int)
     limit = request.form.get('limit', 10, type=int)  # 每次最多处理10个IP，避免卡顿
     
+    conn = None
+    cursor = None
     try:
         # 获取没有位置信息的IP列表
         conn = DatabaseManager.get_connection()
@@ -391,8 +386,6 @@ def refresh_ip_locations():
             (hours, limit)
         )
         ips_to_process = cursor.fetchall()
-        cursor.close()
-        DatabaseManager.return_connection(conn)
         
         if not ips_to_process:
             return jsonify({'success': True, 'message': '没有需要处理的IP', 'processed': 0})
@@ -426,6 +419,14 @@ def refresh_ip_locations():
         
     except Exception as e:
         return jsonify({'success': False, 'message': f'处理失败: {str(e)}'})
+    finally:
+        if cursor:
+            try:
+                cursor.close()
+            except Exception:
+                pass
+        if conn:
+            DatabaseManager.return_connection(conn)
 
 
 @admin_bp.route('/admin/api/test_ip_location', methods=['POST'])

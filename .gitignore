@@ -41,3 +41,5 @@ logs/
 *.temp
 
 GITHUB_RISK_REVIEW.md
+
+test_all_modes.py

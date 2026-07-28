@@ -193,6 +193,9 @@
                     <i class="fas fa-crown me-2"></i>管理员面板
                 </h4>
                 <div class="ms-auto d-flex gap-2">
+                    <a href="{{ url_for('admin.manage_contacts') }}" class="btn btn-gradient">
+                        <i class="fas fa-envelope me-2"></i>联系消息
+                    </a>
                     <a href="{{ url_for('admin.ip_analysis') }}" class="btn btn-gradient">
                         <i class="fas fa-chart-line me-2"></i>IP分析
                     </a>
@@ -330,7 +333,7 @@
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-                <form id="renewForm">
+                <form id="renewForm" data-admin-renew-url="{{ url_for('admin.renew_user') }}">
                     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" id="renewUsername">
                     <div class="mb-3">
@@ -353,7 +356,7 @@
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-                <form id="timesForm">
+                <form id="timesForm" data-admin-times-url="{{ url_for('admin.increase_times') }}">
                     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" id="timesUsername">
                     <div class="mb-3">
@@ -369,210 +372,85 @@
 {% endblock %}
 
 {% block scripts %}
+<script id="admin-chart-init" type="application/json">
+{% if stats %}
+{
+    "by_mode": [{% for m in stats.by_mode %}{"mode":"{{ m.mode }}","count":{{ m.count }}}{% if not loop.last %},{% endif %}{% endfor %}],
+    "trend": [{% for t in trend %}{"day":"{{ t.day }}","total":{{ t.total }},"success_count":{{ t.success_count }},"fail_count":{{ t.fail_count }}}{% if not loop.last %},{% endif %}{% endfor %}],
+    "storage": {% if storage %}{"uploads_size":{{ storage.uploads_size }},"outputs_size":{{ storage.outputs_size }}}{% else %}null{% endif %}
+}
+{% else %}
+null
+{% endif %}
+</script>
+<script src="{{ url_for('static', filename='js/admin.js') }}"></script>
 <script>
-$(document).ready(function() {
-    // ===== 标签切换 =====
-    $('.tab-btn').on('click', function() {
-        const tab = $(this).data('tab');
-        $('.tab-btn').removeClass('active');
-        $(this).addClass('active');
-        $('.tab-panel').removeClass('active');
-        $('#' + tab).addClass('active');
-        // 切换到图表标签时初始化图表
-        if (tab === 'tab-charts') initCharts();
-    });
+// 图表初始化（需要 Jinja2 数据）
+var _adminChartsInit = false;
+var _adminChartInstances = {};
+function initAdminCharts() {
+    if (_adminChartsInit) return;
+    var raw = document.getElementById('admin-chart-init').textContent.trim();
+    if (!raw || raw === 'null') { _adminChartsInit = true; return; }
+    var data = JSON.parse(raw);
 
-    // ===== 图表初始化 =====
-    var _chartsInitialized = false;
-    var _chartInstances = {};
+    var modeLabels = data.by_mode.map(function(m) { return m.mode; });
+    var modeData = data.by_mode.map(function(m) { return m.count; });
+    var pieColors = ['#667eea','#764ba2','#f59e0b','#10b981','#ef4444','#8b5cf6','#06b6d4','#f97316','#14b8a6','#ec4899'];
 
-    function initCharts() {
-        if (_chartsInitialized) return;
-
-        {% if stats %}
-        // 模式饼图
-        var modeLabels = [{% for m in stats.by_mode %}'{{ m.mode }}'{% if not loop.last %},{% endif %}{% endfor %}];
-        var modeData = [{% for m in stats.by_mode %}{{ m.count }}{% if not loop.last %},{% endif %}{% endfor %}];
-        var pieColors = ['#667eea','#764ba2','#f59e0b','#10b981','#ef4444','#8b5cf6','#06b6d4','#f97316','#14b8a6','#ec4899'];
-
-        if (modeLabels.length > 0) {
-            var pieCtx = document.getElementById('modePieChart');
-            if (pieCtx) {
-                _chartInstances.pie = new Chart(pieCtx, {
-                    type: 'doughnut',
-                    data: {
-                        labels: modeLabels,
-                        datasets: [{ data: modeData, backgroundColor: pieColors, borderWidth: 2, borderColor: 'var(--bg-card)' }]
-                    },
-                    options: {
-                        responsive: true, maintainAspectRatio: true,
-                        plugins: { legend: { position: 'right', labels: { padding: 12, usePointStyle: true, font: { size: 11 } } } }
-                    }
-                });
-            }
-        }
-
-        // 7日趋势
-        var trendLabels = [{% for t in trend %}'{{ t.day }}'{% if not loop.last %},{% endif %}{% endfor %}];
-        var trendTotal = [{% for t in trend %}{{ t.total }}{% if not loop.last %},{% endif %}{% endfor %}];
-        var trendSuccess = [{% for t in trend %}{{ t.success_count }}{% if not loop.last %},{% endif %}{% endfor %}];
-        var trendFail = [{% for t in trend %}{{ t.fail_count }}{% if not loop.last %},{% endif %}{% endfor %}];
-
-        if (trendLabels.length > 0) {
-            var lineCtx = document.getElementById('trendLineChart');
-            if (lineCtx) {
-                _chartInstances.line = new Chart(lineCtx, {
-                    type: 'line',
-                    data: {
-                        labels: trendLabels,
-                        datasets: [
-                            { label: '总数', data: trendTotal, borderColor: '#667eea', backgroundColor: 'rgba(102,126,234,.1)', fill: true, tension: .3, pointRadius: 3 },
-                            { label: '成功', data: trendSuccess, borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,.1)', fill: false, tension: .3, pointRadius: 3 },
-                            { label: '失败', data: trendFail, borderColor: '#ef4444', backgroundColor: 'rgba(239,68,68,.1)', fill: false, tension: .3, pointRadius: 3 }
-                        ]
-                    },
-                    options: {
-                        responsive: true, maintainAspectRatio: true,
-                        plugins: { legend: { labels: { usePointStyle: true, padding: 16, font: { size: 11 } } } },
-                        scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } }
-                    }
-                });
-            }
-        }
-
-        // 模式柱状图
-        if (modeLabels.length > 0) {
-            var barCtx = document.getElementById('modeBarChart');
-            if (barCtx) {
-                _chartInstances.bar = new Chart(barCtx, {
-                    type: 'bar',
-                    data: {
-                        labels: modeLabels,
-                        datasets: [{ label: '转换次数', data: modeData, backgroundColor: pieColors, borderRadius: 6 }]
-                    },
-                    options: {
-                        responsive: true, maintainAspectRatio: true,
-                        plugins: { legend: { display: false } },
-                        scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } }
-                    }
-                });
-            }
-        }
-
-        // 存储空间占比图
-        {% if storage %}
-        var storageCtx = document.getElementById('storagePieChart');
-        if (storageCtx) {
-            _chartInstances.storage = new Chart(storageCtx, {
+    if (modeLabels.length > 0) {
+        var pieCtx = document.getElementById('modePieChart');
+        if (pieCtx) {
+            _adminChartInstances.pie = new Chart(pieCtx, {
                 type: 'doughnut',
-                data: {
-                    labels: ['上传目录', '输出目录'],
-                    datasets: [{
-                        data: [{{ storage.uploads_size }}, {{ storage.outputs_size }}],
-                        backgroundColor: ['#3b82f6', '#10b981'],
-                        borderWidth: 2,
-                        borderColor: 'var(--bg-card)'
-                    }]
-                },
-                options: {
-                    responsive: true, maintainAspectRatio: true,
-                    plugins: {
-                        legend: { position: 'bottom', labels: { padding: 14, usePointStyle: true, font: { size: 11 } } },
-                        tooltip: {
-                            callbacks: {
-                                label: function(ctx) {
-                                    var bytes = ctx.raw;
-                                    var size = bytes >= 1048576 ? (bytes / 1048576).toFixed(1) + ' MB'
-                                        : bytes >= 1024 ? (bytes / 1024).toFixed(1) + ' KB'
-                                        : bytes + ' B';
-                                    return ctx.label + ': ' + size;
-                                }
-                            }
-                        }
-                    }
-                }
+                data: { labels: modeLabels, datasets: [{ data: modeData, backgroundColor: pieColors, borderWidth: 2, borderColor: 'var(--bg-card)' }] },
+                options: { responsive: true, maintainAspectRatio: true, plugins: { legend: { position: 'right', labels: { padding: 12, usePointStyle: true, font: { size: 11 } } } } }
             });
         }
-        {% endif %}
-        {% endif %}
-
-        _chartsInitialized = true;
     }
 
-    // 如果 URL hash 指向 charts，自动切换
-    if (window.location.hash === '#charts') {
-        $('.tab-btn[data-tab="tab-charts"]').trigger('click');
+    var trendLabels = data.trend.map(function(t) { return t.day; });
+    var trendTotal = data.trend.map(function(t) { return t.total; });
+    var trendSuccess = data.trend.map(function(t) { return t.success_count; });
+    var trendFail = data.trend.map(function(t) { return t.fail_count; });
+    if (trendLabels.length > 0) {
+        var lineCtx = document.getElementById('trendLineChart');
+        if (lineCtx) {
+            _adminChartInstances.line = new Chart(lineCtx, {
+                type: 'line',
+                data: { labels: trendLabels, datasets: [
+                    { label: '总数', data: trendTotal, borderColor: '#667eea', backgroundColor: 'rgba(102,126,234,.1)', fill: true, tension: .3, pointRadius: 3 },
+                    { label: '成功', data: trendSuccess, borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,.1)', fill: false, tension: .3, pointRadius: 3 },
+                    { label: '失败', data: trendFail, borderColor: '#ef4444', backgroundColor: 'rgba(239,68,68,.1)', fill: false, tension: .3, pointRadius: 3 }
+                ]},
+                options: { responsive: true, maintainAspectRatio: true, plugins: { legend: { labels: { usePointStyle: true, padding: 16, font: { size: 11 } } } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
+            });
+        }
     }
 
-    // ===== 封禁/解封 =====
-    $('.block-btn').click(function() {
-        const username = $(this).data('username');
-        if (!confirm('确认要操作用户 ' + username + ' 的封禁状态吗？')) return;
-
-        $.post('{{ url_for("admin.block_user") }}',
-            { username: username },
-            function(response) {
-                showAdminToast(response.message, response.success);
-                if (response.success) setTimeout(() => location.reload(), 1000);
-            }
-        );
-    });
-
-    // 续期
-    $('.renew-btn').click(function() {
-        $('#renewUsername').val($(this).data('username'));
-        $('#renewModal').modal('show');
-    });
-
-    $('#renewForm').submit(function(e) {
-        e.preventDefault();
-        $.post('{{ url_for("admin.renew_user") }}',
-            {
-                username: $('#renewUsername').val(),
-                days: $('#renewDays').val()
-            },
-            function(response) {
-                showAdminToast(response.message, response.success);
-                if (response.success) {
-                    $('#renewModal').modal('hide');
-                    setTimeout(() => location.reload(), 1000);
-                }
-            }
-        );
-    });
-
-    // 充值次数
-    $('.times-btn').click(function() {
-        $('#timesUsername').val($(this).data('username'));
-        $('#timesModal').modal('show');
-    });
-
-    $('#timesForm').submit(function(e) {
-        e.preventDefault();
-        $.post('{{ url_for("admin.increase_times") }}',
-            {
-                username: $('#timesUsername').val(),
-                times: $('#timesCount').val()
-            },
-            function(response) {
-                showAdminToast(response.message, response.success);
-                if (response.success) {
-                    $('#timesModal').modal('hide');
-                    setTimeout(() => location.reload(), 1000);
-                }
-            }
-        );
-    });
-
-    function showAdminToast(msg, success) {
-        const icon = success ? 'check-circle' : 'exclamation-circle';
-        const cls = success ? 'success' : 'danger';
-        const $alert = $('<div class="alert alert-' + cls + ' alert-dismissible fade show position-fixed top-0 start-50 translate-middle-x mt-5" style="z-index:99999;">' +
-            '<i class="fas fa-' + icon + ' me-2"></i>' + msg +
-            '<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>');
-        $('body').append($alert);
-        setTimeout(() => $alert.alert('close'), 3000);
+    if (modeLabels.length > 0) {
+        var barCtx = document.getElementById('modeBarChart');
+        if (barCtx) {
+            _adminChartInstances.bar = new Chart(barCtx, {
+                type: 'bar',
+                data: { labels: modeLabels, datasets: [{ label: '转换次数', data: modeData, backgroundColor: pieColors, borderRadius: 6 }] },
+                options: { responsive: true, maintainAspectRatio: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
+            });
+        }
     }
-});
+
+    if (data.storage) {
+        var storageCtx = document.getElementById('storagePieChart');
+        if (storageCtx) {
+            _adminChartInstances.storage = new Chart(storageCtx, {
+                type: 'doughnut',
+                data: { labels: ['上传目录', '输出目录'], datasets: [{ data: [data.storage.uploads_size, data.storage.outputs_size], backgroundColor: ['#3b82f6', '#10b981'], borderWidth: 2, borderColor: 'var(--bg-card)' }] },
+                options: { responsive: true, maintainAspectRatio: true, plugins: { legend: { position: 'bottom', labels: { padding: 14, usePointStyle: true, font: { size: 11 } } }, tooltip: { callbacks: { label: function(ctx) { var bytes = ctx.raw; return bytes >= 1048576 ? (bytes / 1048576).toFixed(1) + ' MB' : bytes >= 1024 ? (bytes / 1024).toFixed(1) + ' KB' : bytes + ' B'; } } } } }
+            });
+        }
+    }
+
+    _adminChartsInit = true;
+}
 </script>
 {% endblock %}

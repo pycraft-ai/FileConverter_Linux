@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
+    <meta name="is-admin" content="{{ 'true' if session.get('is_admin') else 'false' }}">
+    <meta name="has-user" content="{{ 'true' if session.get('username') else 'false' }}">
     <title>{% block title %}文件转化工具{% endblock %}</title>
     <!-- 预防主题闪烁：在 CSS 加载前同步设置 data-theme -->
     <script>
@@ -330,7 +332,7 @@
 
         <!-- 移动端：顶部迷你导航条 -->
         <div class="mobile-topbar" id="mobileTopbar">
-            <button class="mobile-menu-btn" id="mobileMenuBtn" onclick="toggleSidebar()">
+            <button class="mobile-menu-btn" id="mobileMenuBtn">
                 <i class="fas fa-bars"></i>
             </button>
             <span class="mobile-brand">文件转化工具</span>
@@ -340,7 +342,7 @@
         </div>
 
         <!-- 移动端侧边栏遮罩 -->
-        <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
+        <div class="sidebar-overlay" id="sidebarOverlay"></div>
 
         <!-- ==================== 主内容区 ==================== -->
         <main class="main-content" id="mainContent">
@@ -387,122 +389,7 @@
     <!-- jQuery 必须同步加载，后续内联脚本依赖 $  -->
     <script src="{{ CDN_BASE_URL }}/jquery/3.7.1/jquery.min.js"></script>
     <script src="{{ CDN_BASE_URL }}/twitter-bootstrap/5.3.2/js/bootstrap.bundle.min.js" defer></script>
-
-    <script>
-    // ===== 移动端侧边栏切换 =====
-    function toggleSidebar() {
-        var sidebar = document.getElementById('appSidebar');
-        var overlay = document.getElementById('sidebarOverlay');
-        if (sidebar && overlay) {
-            sidebar.classList.toggle('open');
-            overlay.classList.toggle('show');
-        }
-    }
-
-    // ===== 主题切换 =====
-    (function() {
-        var saved = document.documentElement.getAttribute('data-theme') || 'light';
-        updateThemeBtns(saved);
-
-        // 主题变化监听
-        document.addEventListener('click', function(e) {
-            var btn = e.target.closest('.theme-btn');
-            if (!btn) return;
-            var theme = btn.getAttribute('data-theme');
-            if (!theme) return;
-            document.documentElement.setAttribute('data-theme', theme);
-            localStorage.setItem('theme', theme);
-            updateThemeBtns(theme);
-        });
-    })();
-
-    function updateThemeBtns(theme) {
-        document.querySelectorAll('.theme-btn').forEach(function(b) {
-            b.classList.toggle('active', b.getAttribute('data-theme') === theme);
-        });
-    }
-
-    // ===== CSRF 防护 =====
-    var _csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
-    var _originalFetch = window.fetch;
-    window.fetch = function(url, options) {
-        options = options || {};
-        var method = (options.method || 'GET').toUpperCase();
-        if (['POST', 'PUT', 'DELETE', 'PATCH'].indexOf(method) >= 0) {
-            options.headers = options.headers || {};
-            if (!(options.body instanceof FormData)) {
-                options.headers['Content-Type'] = options.headers['Content-Type'] || 'application/x-www-form-urlencoded';
-            }
-            options.headers['X-CSRF-Token'] = _csrfToken;
-        }
-        return _originalFetch.call(this, url, options);
-    };
-
-    $(document).ajaxSend(function(event, jqXHR, settings) {
-        var method = (settings.type || 'GET').toUpperCase();
-        if (['POST', 'PUT', 'DELETE', 'PATCH'].indexOf(method) >= 0) {
-            jqXHR.setRequestHeader('X-CSRF-Token', _csrfToken);
-        }
-    });
-
-    // ===== HTML 转义 =====
-    function escapeHtml(text) {
-        if (!text) return '';
-        var div = document.createElement('div');
-        div.appendChild(document.createTextNode(text));
-        return div.innerHTML;
-    }
-
-    function safeSetText(el, text) {
-        if (typeof el === 'string') el = document.getElementById(el);
-        if (el) el.textContent = text;
-    }
-
-    // Flash 消息自动消失
-    $('#flashArea .alert').each(function() {
-        var $el = $(this);
-        setTimeout(function() { $el.alert('close'); }, 1000);
-    });
-
-    // 消息未读数轮询
-    var badgeTimer = null;
-    function updateAllBadges() {
-        if (document.hidden) return;
-        {% if session.get('is_admin') %}
-        fetch('/admin/unread_count')
-            .then(function(r) { return r.json(); })
-            .then(function(data) {
-                var badge = document.getElementById('msgBadge');
-                if (badge && data.count > 0) {
-                    badge.textContent = data.count > 99 ? '99+' : data.count;
-                    badge.style.display = 'flex';
-                } else if (badge) {
-                    badge.style.display = 'none';
-                }
-            })
-            .catch(function() {});
-        {% endif %}
-        {% if session.get('username') and not session.get('is_admin') %}
-        fetch('/api/user_unread_replies')
-            .then(function(r) { return r.json(); })
-            .then(function(data) {
-                var badge = document.getElementById('userMsgBadge');
-                if (badge && data.count > 0) {
-                    badge.textContent = data.count > 99 ? '99+' : data.count;
-                    badge.style.display = 'flex';
-                } else if (badge) {
-                    badge.style.display = 'none';
-                }
-            })
-            .catch(function() {});
-        {% endif %}
-    }
-    if (!document.hidden) updateAllBadges();
-    badgeTimer = setInterval(updateAllBadges, 60000);
-    document.addEventListener('visibilitychange', function() {
-        if (!document.hidden) updateAllBadges();
-    });
-    </script>
+    <script src="{{ url_for('static', filename='js/base.js') }}"></script>
     {% block scripts %}{% endblock %}
 </body>
 </html>
