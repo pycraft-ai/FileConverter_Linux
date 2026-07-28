@@ -1,6 +1,7 @@
 """
-安全工具模块：CSRF 防护、限流、安全 IP 获取、密码哈希、恶意文件检测
+安全工具模块：CSRF 防护、限流、安全 IP 获取、密码哈希、恶意文件检测、日志
 """
+from utils.logger import setup_logger, get_logger
 import os
 import re
 import struct

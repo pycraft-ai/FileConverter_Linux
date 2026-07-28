@@ -5,6 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>{% block title %}文件转化工具{% endblock %}</title>
+    <!-- 预防主题闪烁：在 CSS 加载前同步设置 data-theme -->
+    <script>
+    (function(){
+        var theme = localStorage.getItem('theme');
+        if (theme) document.documentElement.setAttribute('data-theme', theme);
+    })();
+    </script>
     <!-- 预连接国内 CDN -->
     <link rel="preconnect" href="{{ CDN_BASE_URL }}" crossorigin>
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
@@ -16,83 +23,345 @@
     <style>
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }
     </style>
+
+    <!-- 侧边栏布局样式 -->
+    <style>
+    /* ===== 侧边栏布局样式 ===== */
+    :root {
+        --sidebar-width: 260px;
+        --sidebar-bg: #ffffff;
+        --sidebar-border: #e5e7eb;
+    }
+    [data-theme="dark"] { --sidebar-bg: #1a1a2e; --sidebar-border: rgba(200,200,220,.12); }
+    [data-theme="eye-care"] { --sidebar-bg: #fdf6e3; --sidebar-border: rgba(91,70,54,.12); }
+
+    .app-layout {
+        display: flex;
+        min-height: 100vh;
+    }
+
+    /* 侧边栏 */
+    .app-sidebar {
+        width: var(--sidebar-width);
+        background: var(--sidebar-bg);
+        border-right: 1px solid var(--sidebar-border);
+        display: flex;
+        flex-direction: column;
+        position: fixed;
+        top: 0; left: 0; bottom: 0;
+        z-index: 100;
+        box-shadow: 0 1px 3px rgba(0,0,0,.06);
+        transition: transform .25s ease;
+    }
+
+    .sidebar-brand {
+        padding: 22px 20px;
+        border-bottom: 1px solid var(--sidebar-border);
+        display: flex; align-items: center; gap: 10px;
+    }
+    .sidebar-brand .brand-icon {
+        width: 36px; height: 36px;
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        border-radius: 10px;
+        display: flex; align-items: center; justify-content: center;
+        color: #fff; font-size: 17px; flex-shrink: 0;
+    }
+    .sidebar-brand .brand-text {
+        font-weight: 700; font-size: 16px;
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+    }
+
+    /* 用户卡片 */
+    .sidebar-user {
+        padding: 16px 20px;
+        border-bottom: 1px solid var(--sidebar-border);
+        display: flex; align-items: center; gap: 12px;
+    }
+    .sidebar-user .avatar-circle {
+        width: 40px; height: 40px;
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        border-radius: 50%;
+        display: flex; align-items: center; justify-content: center;
+        color: #fff; font-size: 16px; flex-shrink: 0;
+    }
+    .sidebar-user .user-detail { flex: 1; min-width: 0; }
+    .sidebar-user .user-name { font-weight: 600; font-size: 14px; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .sidebar-user .user-role { font-size: 12px; color: var(--text-muted); }
+
+    /* 次数统计 */
+    .sidebar-stat {
+        margin: 12px 16px;
+        padding: 12px 14px;
+        background: linear-gradient(135deg, rgba(102,126,234,.08), rgba(118,75,162,.08));
+        border-radius: 12px;
+        display: flex; align-items: center; gap: 10px;
+    }
+    .sidebar-stat .stat-icon {
+        width: 34px; height: 34px;
+        background: #667eea;
+        border-radius: 10px;
+        display: flex; align-items: center; justify-content: center;
+        color: #fff; font-size: 14px;
+    }
+    .sidebar-stat .stat-num {
+        font-size: 22px; font-weight: 700; color: #667eea; line-height: 1;
+    }
+    .sidebar-stat .stat-label {
+        font-size: 11px; color: var(--text-muted);
+    }
+
+    /* 主题切换 */
+    .sidebar-theme {
+        display: flex; gap: 4px;
+        padding: 8px 16px;
+        background: var(--bg-item);
+        margin: 8px 16px;
+        border-radius: 10px;
+    }
+    .sidebar-theme .theme-btn {
+        flex: 1;
+        border: none; background: none;
+        width: 32px; height: 32px; border-radius: 8px;
+        display: flex; align-items: center; justify-content: center;
+        cursor: pointer; color: var(--text-muted);
+        font-size: 14px; transition: all .15s;
+    }
+    .sidebar-theme .theme-btn:hover { color: #667eea; }
+    [data-theme="light"] .theme-btn[data-theme="light"],
+    [data-theme="dark"] .theme-btn[data-theme="dark"],
+    [data-theme="eye-care"] .theme-btn[data-theme="eye-care"],
+    .sidebar-theme .theme-btn.active {
+        background: #667eea; color: #fff;
+        box-shadow: 0 2px 6px rgba(102,126,234,.25);
+    }
+
+    /* 导航 */
+    .sidebar-nav {
+        flex: 1; padding: 4px 12px;
+        display: flex; flex-direction: column; gap: 2px;
+        overflow-y: auto;
+    }
+    .sidebar-nav .nav-section {
+        font-size: 10px; font-weight: 700;
+        text-transform: uppercase; letter-spacing: .8px;
+        color: var(--text-muted); padding: 14px 8px 6px;
+    }
+    .sidebar-nav .nav-item {
+        display: flex; align-items: center; gap: 10px;
+        padding: 10px 12px; border-radius: 8px;
+        color: var(--text-secondary); font-size: 13px; font-weight: 500;
+        text-decoration: none; cursor: pointer; transition: all .15s;
+        position: relative;
+    }
+    .sidebar-nav .nav-item:hover {
+        background: rgba(102,126,234,.08); color: #667eea;
+    }
+    .sidebar-nav .nav-item.active {
+        background: rgba(102,126,234,.12); color: #667eea; font-weight: 600;
+    }
+    .sidebar-nav .nav-item i { width: 18px; text-align: center; font-size: 14px; }
+    .sidebar-nav .nav-badge {
+        margin-left: auto;
+        background: #ef4444; color: #fff;
+        font-size: 10px; font-weight: 700;
+        min-width: 18px; height: 18px;
+        border-radius: 9px;
+        display: flex; align-items: center; justify-content: center;
+        padding: 0 5px;
+    }
+
+    /* 底部退出 */
+    .sidebar-footer {
+        padding: 12px 16px;
+        border-top: 1px solid var(--sidebar-border);
+    }
+    .sidebar-footer .logout-link {
+        display: flex; align-items: center; gap: 8px;
+        padding: 10px 12px; border-radius: 8px;
+        color: var(--text-muted); font-size: 13px; text-decoration: none;
+        transition: all .15s;
+    }
+    .sidebar-footer .logout-link:hover {
+        background: rgba(239,68,68,.08); color: #ef4444;
+    }
+
+    /* 主内容区 */
+    .main-content {
+        flex: 1;
+        margin-left: var(--sidebar-width);
+        padding: 24px 32px;
+        min-height: 100vh;
+    }
+
+    /* 移动端顶部迷你导航条（默认隐藏） */
+    .mobile-topbar {
+        display: none;
+        position: fixed; top: 0; left: 0; right: 0;
+        height: 56px; background: var(--sidebar-bg);
+        border-bottom: 1px solid var(--sidebar-border);
+        z-index: 99; align-items: center; padding: 0 16px;
+    }
+    .mobile-topbar .mobile-menu-btn {
+        background: none; border: none; font-size: 22px;
+        color: var(--text-primary); cursor: pointer; padding: 4px 8px;
+    }
+    .mobile-topbar .mobile-brand {
+        flex: 1; text-align: center;
+        font-weight: 700; font-size: 16px;
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+    }
+    .mobile-topbar .mobile-logout {
+        color: var(--text-muted); font-size: 18px; padding: 4px 8px;
+    }
+
+    .sidebar-overlay {
+        display: none;
+        position: fixed; inset: 0;
+        background: rgba(0,0,0,.4); z-index: 98;
+    }
+
+    /* 响应式 */
+    @media (max-width: 768px) {
+        .app-sidebar {
+            transform: translateX(-100%);
+        }
+        .app-sidebar.open {
+            transform: translateX(0);
+        }
+        .main-content {
+            margin-left: 0;
+            padding: 72px 16px 24px;
+        }
+        .mobile-topbar { display: flex; }
+        .sidebar-overlay.show { display: block; }
+    }
+</style>
+
+    {% block head_extra %}{% endblock %}
 </head>
 <body>
-    <!-- 动态粒子背景（已禁用，解决滚动掉帧） -->
-    <!-- <div id="particles-js"></div> -->
-
-    <!-- 导航栏 -->
-    <nav class="navbar navbar-expand-lg glass-nav">
-        <div class="container">
-            <a class="navbar-brand" href="{{ url_for('converter.index') }}">
-                <i class="fas fa-file-alt me-2"></i>文件转化工具
-            </a>
-            {% if session.get('username') %}
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
-                <span class="navbar-toggler-icon"></span>
-            </button>
-            <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav ms-auto align-items-center">
-                    <!-- 主题切换 -->
-                    <li class="nav-item me-2">
-                        <div class="theme-switcher d-flex gap-1" style="background:var(--bg-item);border-radius:8px;padding:3px;">
-                            <button class="theme-btn active" data-theme="light" title="日间模式" style="border:none;background:none;width:32px;height:32px;border-radius:6px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--text-muted);transition:all .2s;">
-                                <i class="fas fa-sun"></i>
-                            </button>
-                            <button class="theme-btn" data-theme="eye-care" title="护眼模式" style="border:none;background:none;width:32px;height:32px;border-radius:6px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--text-muted);transition:all .2s;">
-                                <i class="fas fa-eye"></i>
-                            </button>
-                            <button class="theme-btn" data-theme="dark" title="夜间模式" style="border:none;background:none;width:32px;height:32px;border-radius:6px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--text-muted);transition:all .2s;">
-                                <i class="fas fa-moon"></i>
-                            </button>
-                        </div>
-                    </li>
-                    <li class="nav-item">
-                        <span class="nav-link" style="color: #555;">
-                            <i class="fas fa-user-circle me-1"></i>{{ session['username'] }}
-                            {% if session.get('is_admin') %}
-                            <span class="badge-glow">管理员</span>
-                            {% endif %}
-                        </span>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link nav-btn position-relative" href="{{ url_for('converter.contact') }}">
-                            <i class="fas fa-envelope me-1"></i>联系作者
-                            <span id="userMsgBadge" class="badge rounded-pill bg-success" 
-                                  style="display:none;font-size:10px;position:absolute;top:2px;right:2px;min-width:16px;">0</span>
-                        </a>
-                    </li>
-                    {% if session.get('is_admin') %}
-                    <li class="nav-item">
-                        <a class="nav-link nav-btn" href="{{ url_for('admin.admin_panel') }}">
-                            <i class="fas fa-shield-alt me-1"></i>管理面板
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link nav-btn position-relative" href="{{ url_for('admin.manage_contacts') }}">
-                            <i class="fas fa-inbox me-1"></i>联系消息
-                            <span id="msgBadge" class="badge rounded-pill bg-danger" 
-                                  style="display:none;font-size:10px;position:absolute;top:2px;right:2px;min-width:16px;">0</span>
-                        </a>
-                    </li>
-                    {% endif %}
-                    <li class="nav-item">
-                        <a class="nav-link nav-btn" href="{{ url_for('converter.my_logs') }}">
-                            <i class="fas fa-history me-1"></i>转换记录
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link nav-btn logout-btn" href="{{ url_for('auth.logout') }}">
-                            <i class="fas fa-sign-out-alt me-1"></i>退出
-                        </a>
-                    </li>
-                </ul>
+    {% if session.get('username') %}
+    <!-- ==================== 侧边栏布局 ==================== -->
+    <div class="app-layout">
+        <!-- 侧边栏 -->
+        <aside class="app-sidebar" id="appSidebar">
+            <!-- 品牌 -->
+            <div class="sidebar-brand">
+                <div class="brand-icon"><i class="fas fa-file-alt"></i></div>
+                <span class="brand-text">文件转化工具</span>
             </div>
-            {% endif %}
-        </div>
-    </nav>
 
-    <!-- Flash 消息 -->
+            <!-- 用户信息 -->
+            <div class="sidebar-user">
+                <div class="avatar-circle"><i class="fas fa-user"></i></div>
+                <div class="user-detail">
+                    <div class="user-name">{{ session['username'] }}</div>
+                    <div class="user-role">
+                        {% if session.get('is_admin') %}<i class="fas fa-crown"></i> 管理员
+                        {% else %}<i class="fas fa-user-circle"></i> 普通用户{% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- 次数/到期统计 -->
+            <div class="sidebar-stat" id="sidebarStat">
+                <div class="stat-icon"><i class="fas fa-hashtag"></i></div>
+                <div>
+                    <div class="stat-num" id="sidebarRemaining">{% if session.get('login_type') == 'times' %}{{ session.get('remaining_times', '--') }}{% else %}剩余{{ session.get('expiration_date', '--') | time_remaining }}{% endif %}</div>
+                    <div class="stat-label">{% if session.get('login_type') == 'times' %}次剩余{% else %}{{ session.get('expiration_date', '--') }} 到期{% endif %}</div>
+                </div>
+            </div>
+
+            <!-- 主题切换 -->
+            <div class="sidebar-theme">
+                <button class="theme-btn" data-theme="light" title="日间模式">
+                    <i class="fas fa-sun"></i>
+                </button>
+                <button class="theme-btn" data-theme="eye-care" title="护眼模式">
+                    <i class="fas fa-eye"></i>
+                </button>
+                <button class="theme-btn" data-theme="dark" title="夜间模式">
+                    <i class="fas fa-moon"></i>
+                </button>
+            </div>
+
+            <!-- 导航菜单 -->
+            <nav class="sidebar-nav">
+                <div class="nav-section">主菜单</div>
+                <a class="nav-item {% if request.endpoint == 'converter.index' %}active{% endif %}" href="{{ url_for('converter.index') }}">
+                    <i class="fas fa-exchange-alt"></i> 文件转换
+                </a>
+                <a class="nav-item {% if request.endpoint == 'converter.my_logs' %}active{% endif %}" href="{{ url_for('converter.my_logs') }}">
+                    <i class="fas fa-history"></i> 转换记录
+                </a>
+                <a class="nav-item {% if request.endpoint == 'converter.contact' %}active{% endif %}" href="{{ url_for('converter.contact') }}">
+                    <i class="fas fa-envelope"></i> 联系作者
+                    <span class="nav-badge" id="userMsgBadge" style="display:none;">0</span>
+                </a>
+
+                {% if session.get('is_admin') %}
+                <div class="nav-section">管理</div>
+                <a class="nav-item {% if request.endpoint and 'admin' in request.endpoint %}active{% endif %}" href="{{ url_for('admin.admin_panel') }}">
+                    <i class="fas fa-shield-alt"></i> 管理面板
+                </a>
+                <a class="nav-item {% if request.endpoint == 'admin.manage_contacts' %}active{% endif %}" href="{{ url_for('admin.manage_contacts') }}">
+                    <i class="fas fa-inbox"></i> 联系消息
+                    <span class="nav-badge" id="msgBadge" style="display:none;">0</span>
+                </a>
+                {% endif %}
+            </nav>
+
+            <!-- 底部退出 -->
+            <div class="sidebar-footer">
+                <a class="logout-link" href="{{ url_for('auth.logout') }}">
+                    <i class="fas fa-sign-out-alt"></i> 退出登录
+                </a>
+            </div>
+        </aside>
+
+        <!-- 移动端：顶部迷你导航条 -->
+        <div class="mobile-topbar" id="mobileTopbar">
+            <button class="mobile-menu-btn" id="mobileMenuBtn" onclick="toggleSidebar()">
+                <i class="fas fa-bars"></i>
+            </button>
+            <span class="mobile-brand">文件转化工具</span>
+            <a class="mobile-logout" href="{{ url_for('auth.logout') }}">
+                <i class="fas fa-sign-out-alt"></i>
+            </a>
+        </div>
+
+        <!-- 移动端侧边栏遮罩 -->
+        <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
+
+        <!-- ==================== 主内容区 ==================== -->
+        <main class="main-content" id="mainContent">
+            <!-- Flash 消息 -->
+            <div id="flashArea">
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                {% for category, message in messages %}
+                <div class="alert alert-custom alert-{{ 'danger' if category == 'error' else 'success' }} alert-dismissible fade show"
+                     role="alert">
+                    <i class="fas fa-{{ 'exclamation-circle' if category == 'error' else 'check-circle' }} me-2"></i>
+                    {{ message }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+                {% endfor %}
+                {% endif %}
+                {% endwith %}
+            </div>
+
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+    {% else %}
+    <!-- ==================== 未登录用户：无侧边栏 ==================== -->
     <div class="container mt-3" id="flashArea">
         {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
@@ -107,54 +376,57 @@
         {% endif %}
         {% endwith %}
     </div>
-
-    <!-- 主要内容区域 -->
     <div class="container mt-4">
-        {% block content %}{% endblock %}
+        {% block guest_content %}{% endblock %}
     </div>
+    {% endif %}
 
     <!-- jQuery 必须同步加载，后续内联脚本依赖 $  -->
     <script src="{{ CDN_BASE_URL }}/jquery/3.7.1/jquery.min.js"></script>
     <script src="{{ CDN_BASE_URL }}/twitter-bootstrap/5.3.2/js/bootstrap.bundle.min.js" defer></script>
 
-    <style>
-    /* 主题切换按钮激活态 */
-    .theme-btn.active { background: var(--accent) !important; color: #fff !important; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
-    .theme-btn:hover { color: var(--accent) !important; }
-    .theme-btn.active:hover { color: #fff !important; }
-    </style>
-
     <script>
+    // ===== 移动端侧边栏切换 =====
+    function toggleSidebar() {
+        var sidebar = document.getElementById('appSidebar');
+        var overlay = document.getElementById('sidebarOverlay');
+        if (sidebar && overlay) {
+            sidebar.classList.toggle('open');
+            overlay.classList.toggle('show');
+        }
+    }
+
     // ===== 主题切换 =====
     (function() {
-        var saved = localStorage.getItem('theme') || 'light';
-        document.documentElement.setAttribute('data-theme', saved);
-        document.querySelectorAll('.theme-btn').forEach(function(btn) {
-            btn.classList.toggle('active', btn.getAttribute('data-theme') === saved);
-        });
+        var saved = document.documentElement.getAttribute('data-theme') || 'light';
+        updateThemeBtns(saved);
 
-        document.querySelector('.theme-switcher').addEventListener('click', function(e) {
+        // 主题变化监听
+        document.addEventListener('click', function(e) {
             var btn = e.target.closest('.theme-btn');
             if (!btn) return;
             var theme = btn.getAttribute('data-theme');
+            if (!theme) return;
             document.documentElement.setAttribute('data-theme', theme);
             localStorage.setItem('theme', theme);
-            document.querySelectorAll('.theme-btn').forEach(function(b) {
-                b.classList.toggle('active', b.getAttribute('data-theme') === theme);
-            });
+            updateThemeBtns(theme);
         });
     })();
 
-    // ===== CSRF 防护：所有 AJAX POST 请求自动附带 CSRF token =====
+    function updateThemeBtns(theme) {
+        document.querySelectorAll('.theme-btn').forEach(function(b) {
+            b.classList.toggle('active', b.getAttribute('data-theme') === theme);
+        });
+    }
+
+    // ===== CSRF 防护 =====
     var _csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
-    // 拦截全局 fetch，自动为 POST/PUT/DELETE 请求添加 CSRF header
     var _originalFetch = window.fetch;
     window.fetch = function(url, options) {
         options = options || {};
         var method = (options.method || 'GET').toUpperCase();
         if (['POST', 'PUT', 'DELETE', 'PATCH'].indexOf(method) >= 0) {
             options.headers = options.headers || {};
-            // 如果 FormData body，不能设置 Content-Type，只加 CSRF header
             if (!(options.body instanceof FormData)) {
                 options.headers['Content-Type'] = options.headers['Content-Type'] || 'application/x-www-form-urlencoded';
             }
@@ -163,7 +435,6 @@
         return _originalFetch.call(this, url, options);
     };
 
-    // jQuery AJAX 全局 CSRF 注入（覆盖 $.post / $.ajax / $.getJSON 等 POST 请求）
     $(document).ajaxSend(function(event, jqXHR, settings) {
         var method = (settings.type || 'GET').toUpperCase();
         if (['POST', 'PUT', 'DELETE', 'PATCH'].indexOf(method) >= 0) {
@@ -171,7 +442,7 @@
         }
     });
 
-    // ===== HTML 转义函数（防止 XSS） =====
+    // ===== HTML 转义 =====
     function escapeHtml(text) {
         if (!text) return '';
         var div = document.createElement('div');
@@ -179,22 +450,20 @@
         return div.innerHTML;
     }
 
-    // ===== 安全设置元素文本内容 =====
     function safeSetText(el, text) {
         if (typeof el === 'string') el = document.getElementById(el);
         if (el) el.textContent = text;
     }
 
-    // Flash 消息 3 秒后自动消失
+    // Flash 消息自动消失
     $('#flashArea .alert').each(function() {
         var $el = $(this);
         setTimeout(function() { $el.alert('close'); }, 1000);
     });
 
-    // 消息未读数 - 页面可见时才轮询，60秒一次减少请求
+    // 消息未读数轮询
     var badgeTimer = null;
     function updateAllBadges() {
-        // 只在页面可见时请求
         if (document.hidden) return;
         {% if session.get('is_admin') %}
         fetch('/admin/unread_count')
@@ -203,7 +472,7 @@
                 var badge = document.getElementById('msgBadge');
                 if (badge && data.count > 0) {
                     badge.textContent = data.count > 99 ? '99+' : data.count;
-                    badge.style.display = 'inline';
+                    badge.style.display = 'flex';
                 } else if (badge) {
                     badge.style.display = 'none';
                 }
@@ -217,7 +486,7 @@
                 var badge = document.getElementById('userMsgBadge');
                 if (badge && data.count > 0) {
                     badge.textContent = data.count > 99 ? '99+' : data.count;
-                    badge.style.display = 'inline';
+                    badge.style.display = 'flex';
                 } else if (badge) {
                     badge.style.display = 'none';
                 }
@@ -225,11 +494,8 @@
             .catch(function() {});
         {% endif %}
     }
-    // 页面刚加载时查一次
     if (!document.hidden) updateAllBadges();
-    // 每60秒轮询一次（页面前台可见时才会执行）
     badgeTimer = setInterval(updateAllBadges, 60000);
-    // 切换到前台时立即刷新
     document.addEventListener('visibilitychange', function() {
         if (!document.hidden) updateAllBadges();
     });

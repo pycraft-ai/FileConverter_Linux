@@ -1,9 +1,11 @@
 from flask import Blueprint, render_template, request, jsonify, session, redirect, \
     url_for, flash
 from database.db_manager import DatabaseManager
+from utils.logger import get_logger
 from config import Config
 
 admin_bp = Blueprint('admin', __name__)
+logger = get_logger(__name__)
 
 
 def admin_required():
@@ -43,6 +45,8 @@ def block_user():
         return jsonify({'success': False, 'message': '管理员账号无法被封禁'})
 
     success, msg = DatabaseManager.block_user(username)
+    if success:
+        logger.warning("管理员操作: 封禁/解封用户 | admin=%s target=%s", session['username'], username)
     return jsonify({'success': success, 'message': msg})
 
 
@@ -63,6 +67,8 @@ def renew_user():
         return jsonify({'success': False, 'message': '请输入用户名'})
 
     success, msg = DatabaseManager.update_user_expiration(username, days)
+    if success:
+        logger.info("管理员操作: 续期用户 | admin=%s target=%s days=%s", session['username'], username, days)
     return jsonify({'success': success, 'message': msg})
 
 
@@ -83,6 +89,8 @@ def increase_times():
         return jsonify({'success': False, 'message': '请输入用户名'})
 
     success, msg = DatabaseManager.increase_user_times(username, times)
+    if success:
+        logger.info("管理员操作: 增加次数 | admin=%s target=%s times=%s", session['username'], username, times)
     return jsonify({'success': success, 'message': msg})
 
 
@@ -265,6 +273,8 @@ def block_ip():
         blocked_by=session['username'],
         expire_days=expire_days
     )
+    if success:
+        logger.warning("管理员操作: 封禁IP | admin=%s ip=%s reason=%s expire=%s", session['username'], ip_address, reason, expire_days)
     return jsonify({'success': success, 'message': msg})
 
 
@@ -280,6 +290,8 @@ def unblock_ip():
         return jsonify({'success': False, 'message': '请输入IP地址'})
     
     success, msg = DatabaseManager.unblock_ip(ip_address)
+    if success:
+        logger.info("管理员操作: 解封IP | admin=%s ip=%s", session['username'], ip_address)
     return jsonify({'success': success, 'message': msg})
 
 
@@ -431,7 +443,7 @@ def unread_count():
 
 @admin_bp.route('/admin/contact/reply', methods=['POST'])
 def reply_contact():
-    """回复联系消息"""
+    """回复联系消息（支持多次回复）"""
     if 'username' not in session or not session.get('is_admin'):
         return jsonify({'success': False, 'message': '权限不足'})
     
@@ -441,5 +453,7 @@ def reply_contact():
     if not msg_id or not reply_text:
         return jsonify({'success': False, 'message': '缺少必要参数'})
     
-    success, msg = DatabaseManager.reply_message(msg_id, reply_text)
+    success, msg = DatabaseManager.add_contact_reply(msg_id, reply_text, 'admin')
+    if success:
+        logger.info("管理员回复消息 | admin=%s msg_id=%s", session['username'], msg_id)
     return jsonify({'success': success, 'message': msg})

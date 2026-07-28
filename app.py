@@ -1,7 +1,7 @@
 from flask import Flask, request, abort
 from config import Config
 from database.db_manager import DatabaseManager
-from utils import generate_csrf_token, validate_csrf, get_client_ip
+from utils import generate_csrf_token, validate_csrf, get_client_ip, setup_logger, get_logger
 import os
 import time
 import atexit
@@ -16,6 +16,9 @@ import dotenv
 _env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
 dotenv.load_dotenv(_env_path)
 
+# 初始化日志系统
+logger = setup_logger()
+
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -26,6 +29,30 @@ app.config['PREFERRED_URL_SCHEME'] = 'https'  # Cloudflare 代理下保证 URL �
 app.register_blueprint(auth_bp)
 app.register_blueprint(converter_bp)
 app.register_blueprint(admin_bp)
+
+
+# 自定义 Jinja2 过滤器：计算剩余时间
+@app.template_filter('time_remaining')
+def time_remaining_filter(expiration_str):
+    """根据过期时间字符串返回 'X天X时' 格式的剩余时间"""
+    from datetime import datetime
+    if not expiration_str:
+        return '--'
+    try:
+        expiration = datetime.strptime(str(expiration_str), '%Y-%m-%d %H:%M:%S')
+        now = datetime.now()
+        delta = expiration - now
+        if delta.total_seconds() <= 0:
+            return '已过期'
+        days = delta.days
+        hours = delta.seconds // 3600
+        if days > 0:
+            return f'{days}天{hours}时'
+        else:
+            minutes = (delta.seconds % 3600) // 60
+            return f'{hours}时{minutes}分'
+    except (ValueError, TypeError):
+        return str(expiration_str)
 
 
 # 全局模板变量：CSRF token + CDN URL
@@ -139,7 +166,7 @@ def after_request(response):
         log_executor.submit(_log_access, log_data)
 
     except Exception as e:
-        print(f"记录访问日志错误: {e}")
+        logger.warning("记录访问日志失败: %s", e)
 
     return response
 
@@ -157,7 +184,7 @@ def _log_access(data):
             response_time=data['response_time']
         )
     except Exception as e:
-        print(f"异步记录IP访问日志失败: {e}")
+        logger.error("异步记录IP访问日志失败: %s", e)
 
 
 @app.errorhandler(404)
@@ -171,10 +198,11 @@ def server_error(e):
 
 
 if __name__ == '__main__':
-    print("正在初始化数据库...")
+    logger.info("正在初始化数据库...")
     DatabaseManager.initialize_database()
-    print("数据库初始化完成")
+    logger.info("数据库初始化完成")
 
     debug_mode = os.environ.get('FLASK_DEBUG', '0') == '1'
     port = int(os.environ.get('PORT', 5000))
+    logger.info("应用启动 | port=%s debug=%s", port, debug_mode)
     app.run(host='0.0.0.0', port=port, debug=debug_mode)

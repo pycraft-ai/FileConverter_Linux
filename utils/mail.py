@@ -1,6 +1,9 @@
 import smtplib
 from email.mime.text import MIMEText
 from config import Config
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 def send_verify_code(to_email: str, code: str) -> bool:
@@ -8,7 +11,7 @@ def send_verify_code(to_email: str, code: str) -> bool:
     同步发送邮箱验证码，返回 True/False 表示实际发送结果。
     """
     if not Config.MAIL_USER or not Config.MAIL_PASSWORD:
-        print("[Mail] 未配置 SMTP，跳过发送")
+        logger.warning("未配置 SMTP，跳过发送")
         return False
 
     try:
@@ -35,8 +38,8 @@ def send_verify_code(to_email: str, code: str) -> bool:
         server.login(Config.MAIL_USER, Config.MAIL_PASSWORD)
         server.sendmail(Config.MAIL_USER, [to_email], msg.as_string())
         server.quit()
-        print(f"[Mail] 验证码已发送至 {to_email}")
+        logger.info("验证码已发送至 %s", to_email)
         return True
     except Exception as e:
-        print(f"[Mail] 发送失败: {e}")
+        logger.error("邮件发送失败: %s", e)
         return False

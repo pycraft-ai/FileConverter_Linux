@@ -11,8 +11,10 @@ from config import Config
 from converter.converter_engine import Function
 from database.db_manager import DatabaseManager
 from utils import validate_file_content
+from utils.logger import get_logger
 
 converter_bp = Blueprint('converter', __name__)
+logger = get_logger(__name__)
 
 # 模式配置
 MODE_LIST = [
@@ -236,9 +238,9 @@ def convert():
         return jsonify({'success': False, 'message': '请先登录'})
 
     mode = request.form.get('mode', '')
-    # DEBUG
-    print(f"[DEBUG] mode='{mode}' repr={repr(mode)} len={len(mode)} in_list={mode in MODE_LIST}")
     if mode not in MODE_LIST:
+        logger.warning("无效的转换模式 | user=%s mode=%s", session.get('username'), repr(mode))
+        return jsonify({'success': False, 'message': '无效的转换模式'})
         return jsonify({'success': False, 'message': '无效的转换模式'})
 
     user = DatabaseManager.get_user_by_username(session['username'])
@@ -257,6 +259,7 @@ def convert():
 
     task_id = uuid.uuid4().hex
     input_type = MODE_INPUT_TYPE.get(mode, 'file')
+    logger.info("开始转换 | user=%s mode=%s task_id=%s", session['username'], mode, task_id)
 
     try:
         input_paths = []
@@ -435,7 +438,7 @@ def convert():
                     else:
                         failed_files.append(orig_name)
                 except Exception as conv_err:
-                    print(f"{mode} 文件 {orig_name} 失败: {conv_err}")
+                    logger.error("文件处理失败 | mode=%s file=%s err=%s", mode, orig_name, conv_err)
                     failed_files.append(orig_name)
 
             if not output_paths:
@@ -570,7 +573,7 @@ def convert():
                     else:
                         failed_files.append(orig_name)
                 except Exception as conv_err:
-                    print(f"转换文件 {orig_name} 失败: {conv_err}")
+                    logger.error("转换文件失败 | file=%s err=%s", orig_name, conv_err)
                     failed_files.append(orig_name)
 
             if not output_paths:
@@ -602,6 +605,7 @@ def convert():
                 session['username'], mode, filename_list, True, '转换成功',
                 output_path=output_path
             )
+            logger.info("转换成功 | user=%s mode=%s files=%s", session['username'], mode, filename_list)
 
             # 保存本次转换的文件信息（用于下次重复检测）
             if original_filenames and input_paths:
@@ -619,7 +623,7 @@ def convert():
                     session['username'], 1
                 )
                 if not success:
-                    print(f"扣减次数失败: {msg}")
+                    logger.error("扣减次数失败 | user=%s msg=%s", session['username'], msg)
                 else:
                     match = re.search(r'当前剩余 (\d+) 次', msg)
                     if match:
@@ -662,6 +666,7 @@ def convert():
             DatabaseManager.log_conversion(
                 session['username'], mode, filename_list, False, '转换失败'
             )
+            logger.warning("转换失败 | user=%s mode=%s files=%s", session['username'], mode, filename_list)
 
             # 根据模式和上下文给出特定错误提示
             has_password = bool(request.form.get('password', '').strip())
@@ -691,7 +696,7 @@ def convert():
     except Exception as e:
         # 记录异常日志（详细信息写入服务端日志，前端只返回通用错误）
         mode_safe = request.form.get('mode', '未知')
-        print(f"[Convert Error] user={session.get('username')} mode={mode_safe} err={e}")
+        logger.error("转换异常 | user=%s mode=%s err=%s exc=%s", session.get('username'), mode_safe, e, type(e).__name__)
         DatabaseManager.log_conversion(
             session.get('username', '未知'), mode_safe, '', False,
             f'系统异常: {type(e).__name__}'  # 只记录异常类型，不记录详细信息
@@ -742,9 +747,11 @@ def contact():
             name=session.get('username', ''),
             email=''
         )
+        if success:
+            logger.info("联系消息已提交 | user=%s subject=%s", username, subject)
         return jsonify({'success': success, 'message': msg})
 
-    session['contact_visit_time'] = datetime.now().isoformat()
+    session['contact_visit_time'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
     success, my_messages, total = DatabaseManager.get_messages_by_username(username)
     if not success:
@@ -752,6 +759,43 @@ def contact():
         total = 0
 
     return render_template('contact.html', my_messages=my_messages, total=total)
+
+
+@converter_bp.route('/contact/reply', methods=['POST'])
+def contact_reply():
+    """用户回复管理员的回复"""
+    if 'username' not in session:
+        return jsonify({'success': False, 'message': '请先登录'})
+
+    username = session['username']
+    msg_id = request.form.get('id', type=int)
+    reply_text = request.form.get('reply', '').strip()
+
+    if not msg_id or not reply_text:
+        return jsonify({'success': False, 'message': '缺少必要参数'})
+
+    # 验证该消息属于当前用户
+    conn = DatabaseManager.get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id FROM contact_messages WHERE id = %s AND username = %s",
+            (msg_id, username)
+        )
+        if not cursor.fetchone():
+            cursor.close()
+            return jsonify({'success': False, 'message': '无权操作该消息'})
+        cursor.close()
+    except Exception:
+        pass
+    finally:
+        if conn:
+            DatabaseManager.return_connection(conn)
+
+    success, msg = DatabaseManager.add_contact_reply(msg_id, reply_text, 'user')
+    if success:
+        logger.info("用户回复消息 | user=%s msg_id=%s", username, msg_id)
+    return jsonify({'success': success, 'message': msg})
 
 
 @converter_bp.route('/api/user_unread_replies')

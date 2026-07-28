@@ -4,9 +4,11 @@ from flask import Blueprint, render_template, request, redirect, url_for, sessio
 from database.db_manager import DatabaseManager
 from utils.mail import send_verify_code
 from utils import check_rate_limit, get_client_ip
+from utils.logger import get_logger
 from config import Config
 
 auth_bp = Blueprint('auth', __name__)
+logger = get_logger(__name__)
 
 
 def generate_verify_code():
@@ -21,12 +23,12 @@ def validate_password_strength(password: str):
     """
     if len(password) < Config.PASSWORD_MIN_LENGTH:
         return False, f'密码长度不能少于 {Config.PASSWORD_MIN_LENGTH} 位'
-    if not any(c.isupper() for c in password):
-        return False, '密码必须包含至少一个大写字母'
-    if not any(c.islower() for c in password):
-        return False, '密码必须包含至少一个小写字母'
-    if not any(c.isdigit() for c in password):
-        return False, '密码必须包含至少一个数字'
+    # if not any(c.isupper() for c in password):
+    #     return False, '密码必须包含至少一个大写字母'
+    # if not any(c.islower() for c in password):
+    #     return False, '密码必须包含至少一个小写字母'
+    # if not any(c.isdigit() for c in password):
+    #     return False, '密码必须包含至少一个数字'
     return True, ''
 
 
@@ -68,6 +70,7 @@ def api_send_verify_code():
     # 先尝试发送，成功后再保存到 session
     send_success = send_verify_code(email, code)
     if not send_success:
+        logger.warning("验证码发送失败 | email=%s ip=%s", email, client_ip)
         return jsonify({'success': False, 'message': '邮件发送失败，请确认邮箱地址或稍后重试'})
 
     # 发送成功后才将验证码存入 session
@@ -127,9 +130,11 @@ def login():
             session['expiration_date'] = str(user['expiration_date'])
             from datetime import datetime
             session['contact_visit_time'] = datetime.now().isoformat()
+            logger.info("用户登录成功 | user=%s admin=%s ip=%s", user['username'], user['is_admin'], client_ip)
             flash(msg, 'success')
             return redirect(url_for('converter.index'))
         else:
+            logger.warning("用户登录失败 | user=%s ip=%s reason=%s", username, client_ip, msg)
             flash(msg, 'error')
 
     return render_template('login.html')
@@ -195,9 +200,13 @@ def register():
 
         success, msg = DatabaseManager.register_user(username, email, password)
         if success:
+            logger.info("用户注册成功 | user=%s email=%s", username, email)
             flash('注册成功，请登录', 'success')
             return redirect(url_for('auth.login'))
         else:
+            logger.warning("用户注册失败 | user=%s email=%s reason=%s", username, email, msg)
+            flash(msg, 'error')
+            return render_template('register.html', form=form_data)
             flash(msg, 'error')
             return render_template('register.html', form=form_data)
 
@@ -255,9 +264,11 @@ def forgot_password():
 
         success, msg = DatabaseManager.reset_password(email, new_password)
         if success:
+            logger.info("密码重置成功 | email=%s", email)
             flash('密码重置成功，请登录', 'success')
             return redirect(url_for('auth.login'))
         else:
+            logger.warning("密码重置失败 | email=%s reason=%s", email, msg)
             flash(msg, 'error')
             return render_template('forgot_password.html', form={'email': email})
 

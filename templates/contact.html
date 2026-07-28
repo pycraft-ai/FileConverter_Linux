@@ -52,26 +52,83 @@
             {% if my_messages %}
             <div class="list-group list-group-flush">
                 {% for msg in my_messages %}
-                <div class="list-group-item bg-transparent mb-2" 
+                <div class="list-group-item bg-transparent mb-3" 
                      style="border-radius:10px;border:1px solid rgba(0,0,0,0.08);color:#333;">
                     <div class="d-flex justify-content-between align-items-start">
                         <div>
                             <span class="badge bg-info me-2">{{ msg.subject }}</span>
                             <small class="text-muted">{{ msg.created_at }}</small>
                         </div>
-                        {% if msg.reply %}
-                        <span class="badge bg-success"><i class="fas fa-check me-1"></i>已回复</span>
+                        {% if msg.replies|length > 0 %}
+                        <span class="badge bg-success"><i class="fas fa-check me-1"></i>{{ msg.replies|length }} 条回复</span>
                         {% else %}
                         <span class="badge bg-secondary">等待回复</span>
                         {% endif %}
                     </div>
-                    <div class="mt-2" style="white-space:pre-wrap;color:#555;">{{ msg.message }}</div>
-                    {% if msg.reply %}
-                    <div class="mt-2 p-3" style="background:rgba(78,205,196,0.1);border-left:3px solid #4ecdc4;border-radius:6px;">
-                        <small class="text-info"><i class="fas fa-reply me-1"></i>作者回复 ({{ msg.replied_at }})</small>
-                        <div class="mt-1" style="white-space:pre-wrap;color:#333;">{{ msg.reply }}</div>
+                    <!-- 原始消息 -->
+                    <div class="mt-2 p-2" style="background:rgba(102,126,234,0.05);border-radius:6px;">
+                        <small class="text-muted"><i class="fas fa-user me-1"></i>我</small>
+                        <div style="white-space:pre-wrap;color:#555;">{{ msg.message }}</div>
+                    </div>
+                    <!-- 回复记录 -->
+                    {% if msg.replies %}
+                    {% set reply_count = msg.replies|length %}
+                    {% set collapsed = reply_count > 2 %}
+                    <div class="mt-2">
+                        <div class="d-flex align-items-center gap-2 mb-2">
+                            <span class="text-muted" style="font-size:0.85rem;">
+                                <i class="fas fa-comments me-1"></i>共 {{ reply_count }} 条回复
+                            </span>
+                            <button class="btn btn-sm btn-outline-secondary toggle-replies-btn" 
+                                    onclick="toggleReplies('replies{{ msg.id }}', this)"
+                                    style="font-size:0.8rem;padding:2px 8px;">
+                                <span class="expand-text">展开对话 <i class="fas fa-chevron-down ms-1"></i></span>
+                                <span class="collapse-text" style="display:none;">收起 <i class="fas fa-chevron-up ms-1"></i></span>
+                            </button>
+                        </div>
+                        <div id="replies{{ msg.id }}" class="replies-wrapper" style="{% if collapsed %}display:none;{% endif %}">
+                        {% for r in msg.replies %}
+                        <div class="mt-2 p-3" style="{% if r.author_type == 'admin' %}background:rgba(78,205,196,0.1);border-left:3px solid #4ecdc4;{% else %}background:rgba(102,126,234,0.05);border-left:3px solid #667eea;{% endif %}border-radius:6px;">
+                            <small class="{% if r.author_type == 'admin' %}text-info{% else %}text-muted{% endif %}">
+                                <i class="fas {% if r.author_type == 'admin' %}fa-headset{% else %}fa-user{% endif %} me-1"></i>
+                                {% if r.author_type == 'admin' %}管理员回复{% else %}我的回复{% endif %}
+                                ({{ r.created_at }})
+                            </small>
+                            <div class="mt-1" style="white-space:pre-wrap;color:#333;">{{ r.content }}</div>
+                        </div>
+                        {% endfor %}
+                        </div>
+                        {% if collapsed %}
+                        <!-- 折叠时显示最后一条回复作为预览 -->
+                        <div id="repliesPreview{{ msg.id }}" class="mt-2 p-3" style="background:rgba(78,205,196,0.1);border-left:3px solid #4ecdc4;border-radius:6px;">
+                            {% set last_r = msg.replies[-1] %}
+                            <small class="{% if last_r.author_type == 'admin' %}text-info{% else %}text-muted{% endif %}">
+                                <i class="fas {% if last_r.author_type == 'admin' %}fa-headset{% else %}fa-user{% endif %} me-1"></i>
+                                {% if last_r.author_type == 'admin' %}管理员回复{% else %}我的回复{% endif %}
+                                ({{ last_r.created_at }})
+                            </small>
+                            <div class="mt-1" style="white-space:pre-wrap;color:#333;">{{ last_r.content }}</div>
+                        </div>
+                        {% endif %}
                     </div>
                     {% endif %}
+                    <!-- 用户继续回复表单 -->
+                    <div class="mt-2" id="replyArea{{ msg.id }}">
+                        <button class="btn btn-sm btn-outline-primary" onclick="showReplyForm({{ msg.id }})">
+                            <i class="fas fa-reply me-1"></i>继续回复
+                        </button>
+                        <div id="replyForm{{ msg.id }}" class="mt-2" style="display:none;">
+                            <textarea class="form-control bg-dark text-white border-secondary mb-2" 
+                                      id="replyText{{ msg.id }}" rows="3" 
+                                      placeholder="输入回复内容..."></textarea>
+                            <button class="btn btn-sm btn-primary" onclick="submitUserReply({{ msg.id }})">
+                                <i class="fas fa-paper-plane me-1"></i>发送
+                            </button>
+                            <button class="btn btn-sm btn-secondary" onclick="hideReplyForm({{ msg.id }})">
+                                取消
+                            </button>
+                        </div>
+                    </div>
                 </div>
                 {% endfor %}
             </div>
@@ -110,7 +167,6 @@ document.getElementById('contactForm').addEventListener('submit', function(e) {
     .then(function(r) { return r.json(); })
     .then(function(data) {
         resultDiv.style.display = 'block';
-        // 安全显示消息：使用 textContent 而非 innerHTML
         var icon = document.createElement('i');
         if (data.success) {
             resultDiv.className = 'mt-3 alert alert-success';
@@ -145,5 +201,63 @@ document.getElementById('contactForm').addEventListener('submit', function(e) {
         btn.appendChild(document.createTextNode('发送消息'));
     });
 });
+
+// 折叠/展开对话
+function toggleReplies(wrapperId, btn) {
+    var wrapper = document.getElementById(wrapperId);
+    var previewEl = document.getElementById('repliesPreview' + wrapperId.replace('replies', ''));
+    var expandSpan = btn.querySelector('.expand-text');
+    var collapseSpan = btn.querySelector('.collapse-text');
+    
+    if (wrapper.style.display === 'none') {
+        wrapper.style.display = 'block';
+        if (previewEl) previewEl.style.display = 'none';
+        expandSpan.style.display = 'none';
+        collapseSpan.style.display = '';
+    } else {
+        wrapper.style.display = 'none';
+        if (previewEl) previewEl.style.display = 'block';
+        expandSpan.style.display = '';
+        collapseSpan.style.display = 'none';
+    }
+}
+
+// 显示回复表单
+function showReplyForm(msgId) {
+    document.getElementById('replyForm' + msgId).style.display = 'block';
+}
+
+// 隐藏回复表单
+function hideReplyForm(msgId) {
+    document.getElementById('replyForm' + msgId).style.display = 'none';
+    document.getElementById('replyText' + msgId).value = '';
+}
+
+// 用户提交回复
+function submitUserReply(msgId) {
+    var textEl = document.getElementById('replyText' + msgId);
+    var text = textEl.value.trim();
+    if (!text) { alert('请输入回复内容'); return; }
+
+    var fd = new FormData();
+    fd.append('id', msgId);
+    fd.append('reply', text);
+
+    fetch('{{ url_for("converter.contact_reply") }}', {
+        method: 'POST',
+        body: fd
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.success) {
+            location.reload();
+        } else {
+            alert('回复失败：' + data.message);
+        }
+    })
+    .catch(function(err) {
+        alert('请求失败：' + err);
+    });
+}
 </script>
 {% endblock %}

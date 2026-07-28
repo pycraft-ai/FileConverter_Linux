@@ -14,6 +14,9 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import Config
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class DatabaseManager:
@@ -35,7 +38,7 @@ class DatabaseManager:
                             **Config.DB_CONFIG
                         )
                     except Error as e:
-                        print(f"创建连接池失败: {e}")
+                        logger.error("创建连接池失败: %s", e)
                         return None
         return cls._cnx_pool
 
@@ -74,7 +77,7 @@ class DatabaseManager:
                     pass
                 return False
         except Exception as e:
-            print(f"检查MySQL服务状态错误: {e}")
+            logger.error("检查MySQL服务状态错误: %s", e)
             return False
 
     @classmethod
@@ -86,7 +89,7 @@ class DatabaseManager:
                 return pool.get_connection()
             return cls.create_connection()
         except Error as e:
-            print(f"获取数据库连接错误: {e}")
+            logger.error("获取数据库连接错误: %s", e)
             try:
                 return cls.create_connection()
             except Exception:
@@ -111,7 +114,7 @@ class DatabaseManager:
                     except Exception:
                         pass
         except Exception as e:
-            print(f"返回数据库连接错误: {e}")
+            logger.error("返回数据库连接错误: %s", e)
 
     @staticmethod
     def create_connection():
@@ -120,7 +123,7 @@ class DatabaseManager:
             conn = mysql.connector.connect(**Config.DB_CONFIG)
             return conn
         except Error as e:
-            print(f"数据库连接错误: {e}")
+            logger.error("数据库连接错误: %s", e)
             return None
 
     @classmethod
@@ -187,7 +190,7 @@ class DatabaseManager:
                 conn.commit()
                 cursor.close()
         except Error as e:
-            print(f"密码升级失败: {e}")
+            logger.error("密码升级失败: %s", e)
             if conn:
                 conn.rollback()
         finally:
@@ -208,7 +211,7 @@ class DatabaseManager:
                 cursor = conn.cursor()
                 DB = Config.DB_CONFIG.get('database')
                 if not re.match(r'^[a-zA-Z0-9_]+$', str(DB)):
-                    print(f"非法的数据库名: {DB}")
+                    logger.error("非法的数据库名: %s", DB)
                     return
                 cursor.execute("SHOW DATABASES LIKE %s", (DB,))
                 database_exists = cursor.fetchone()
@@ -383,6 +386,22 @@ class DatabaseManager:
                             INDEX idx_username_created (username, created_at)
                         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                     """)
+
+                # --- 回复记录表（支持多次双向回复） ---
+                cursor.execute("SHOW TABLES LIKE 'contact_replies'")
+                if not cursor.fetchone():
+                    cursor.execute("""
+                        CREATE TABLE contact_replies (
+                            id              INT AUTO_INCREMENT PRIMARY KEY,
+                            message_id      INT NOT NULL,
+                            author_type     ENUM('user', 'admin') NOT NULL,
+                            content         TEXT NOT NULL,
+                            created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+                            INDEX idx_message_id (message_id),
+                            INDEX idx_created_at (created_at),
+                            FOREIGN KEY (message_id) REFERENCES contact_messages(id) ON DELETE CASCADE
+                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                    """)
                 else:
                     cursor.execute("SHOW COLUMNS FROM contact_messages LIKE 'username'")
                     if not cursor.fetchone():
@@ -423,11 +442,11 @@ class DatabaseManager:
 
                 # 安全检查：管理员密码必须通过环境变量设置
                 if not ADMIN_PASSWORD:
-                    print("=" * 60)
-                    print("⚠️  警告：未设置 ADMIN_PASSWORD 环境变量！")
-                    print("   管理员账号将不会被创建/更新。")
-                    print("   请在 .env 中设置 ADMIN_PASSWORD=<强密码>")
-                    print("=" * 60)
+                    logger.warning("=" * 60)
+                    logger.warning("未设置 ADMIN_PASSWORD 环境变量！")
+                    logger.warning("管理员账号将不会被创建/更新。")
+                    logger.warning("请在 .env 中设置 ADMIN_PASSWORD=<强密码>")
+                    logger.warning("=" * 60)
 
                 cursor.execute("SELECT * FROM users WHERE username = %s", (ADMIN_NAME,))
                 admin_exists = cursor.fetchone()
@@ -456,7 +475,7 @@ class DatabaseManager:
                             "UPDATE users SET password = %s, salt = %s WHERE username = %s",
                             (new_hash, '', ADMIN_NAME)
                         )
-                        print("管理员密码哈希已自动升级为 werkzeug 格式")
+                        logger.info("管理员密码哈希已自动升级为 werkzeug 格式")
 
                 conn.commit()
                 cursor.close()
@@ -466,7 +485,7 @@ class DatabaseManager:
                 DatabaseManager._get_pool()
 
         except Error as e:
-            print(f"数据库初始化错误: {e}")
+            logger.error("数据库初始化错误: %s", e)
         finally:
             if conn:
                 try:
@@ -630,7 +649,7 @@ class DatabaseManager:
                 cursor.close()
                 return user
         except Error as e:
-            print(f"获取用户信息错误: {e}")
+            logger.error("获取用户信息错误: %s", e)
         finally:
             if conn:
                 DatabaseManager.return_connection(conn)
@@ -785,7 +804,7 @@ class DatabaseManager:
         except Error as e:
             if conn:
                 conn.rollback()
-            print(f"减少次数数据库错误: {e}")
+            logger.error("减少次数数据库错误: %s", e)
             return False, f"减少次数失败: {e}"
         finally:
             if conn:
@@ -813,7 +832,7 @@ class DatabaseManager:
                 cursor.close()
                 return True
         except Error as e:
-            print(f"记录登录尝试失败: {e}")
+            logger.error("记录登录尝试失败: %s", e)
             if conn:
                 conn.rollback()
         finally:
@@ -840,7 +859,7 @@ class DatabaseManager:
                 cursor.close()
                 return count
         except Error as e:
-            print(f"查询登录失败次数错误: {e}")
+            logger.error("查询登录失败次数错误: %s", e)
         finally:
             if conn:
                 DatabaseManager.return_connection(conn)
@@ -868,7 +887,7 @@ class DatabaseManager:
                 cursor.close()
                 return True
         except Error as e:
-            print(f"记录日志错误: {e}")
+            logger.error("记录日志错误: %s", e)
             if conn:
                 conn.rollback()
         finally:
@@ -1143,7 +1162,7 @@ class DatabaseManager:
                 cursor.close()
                 return True
         except Error as e:
-            print(f"记录IP访问日志错误: {e}")
+            logger.error("记录IP访问日志错误: %s", e)
             if conn:
                 conn.rollback()
         finally:
@@ -1183,7 +1202,7 @@ class DatabaseManager:
                     DatabaseManager._ip_blocked_cache_time = now
                 return is_blocked, result
         except Error as e:
-            print(f"检查IP黑名单错误: {e}")
+            logger.error("检查IP黑名单错误: %s", e)
         finally:
             if conn:
                 DatabaseManager.return_connection(conn)
@@ -1377,7 +1396,7 @@ class DatabaseManager:
                 }
             return None
         except Exception as e:
-            print(f"获取IP位置失败 {ip_address}: {e}")
+            logger.error("获取IP位置失败 %s: %s", ip_address, e)
             return None
 
     @staticmethod
@@ -1400,7 +1419,7 @@ class DatabaseManager:
         except Error as e:
             if conn:
                 conn.rollback()
-            print(f"更新IP位置失败: {e}")
+            logger.error("更新IP位置失败: %s", e)
         finally:
             if conn:
                 DatabaseManager.return_connection(conn)
@@ -1476,7 +1495,7 @@ class DatabaseManager:
 
     @staticmethod
     def get_messages_by_username(username, page=1, per_page=20):
-        """获取用户消息列表"""
+        """获取用户消息列表（含回复记录）"""
         conn = None
         try:
             conn = DatabaseManager.get_connection()
@@ -1491,11 +1510,31 @@ class DatabaseManager:
                     (username, per_page, offset)
                 )
                 messages = cursor.fetchall()
-                for m in messages:
-                    if m.get('created_at'):
-                        m['created_at'] = str(m['created_at'])
-                    if m.get('replied_at'):
-                        m['replied_at'] = str(m['replied_at'])
+                if messages:
+                    # 批量加载所有回复
+                    msg_ids = [m['id'] for m in messages]
+                    placeholders = ','.join(['%s'] * len(msg_ids))
+                    cursor.execute(
+                        f"""SELECT id, message_id, author_type, content, created_at
+                        FROM contact_replies
+                        WHERE message_id IN ({placeholders})
+                        ORDER BY created_at ASC""",
+                        tuple(msg_ids)
+                    )
+                    all_replies = cursor.fetchall()
+                    for r in all_replies:
+                        if r.get('created_at'):
+                            r['created_at'] = str(r['created_at'])
+                    # 按 message_id 分组
+                    replies_map = {}
+                    for r in all_replies:
+                        replies_map.setdefault(r['message_id'], []).append(r)
+                    for m in messages:
+                        if m.get('created_at'):
+                            m['created_at'] = str(m['created_at'])
+                        if m.get('replied_at'):
+                            m['replied_at'] = str(m['replied_at'])
+                        m['replies'] = replies_map.get(m['id'], [])
                 cursor.execute(
                     "SELECT COUNT(*) as total FROM contact_messages WHERE username = %s",
                     (username,)
@@ -1512,7 +1551,7 @@ class DatabaseManager:
 
     @staticmethod
     def get_contact_messages(page=1, per_page=20):
-        """获取联系消息列表"""
+        """获取联系消息列表（管理员视图，含回复记录）"""
         conn = None
         try:
             conn = DatabaseManager.get_connection()
@@ -1526,11 +1565,29 @@ class DatabaseManager:
                     (per_page, offset)
                 )
                 messages = cursor.fetchall()
-                for m in messages:
-                    if m.get('created_at'):
-                        m['created_at'] = str(m['created_at'])
-                    if m.get('replied_at'):
-                        m['replied_at'] = str(m['replied_at'])
+                if messages:
+                    msg_ids = [m['id'] for m in messages]
+                    placeholders = ','.join(['%s'] * len(msg_ids))
+                    cursor.execute(
+                        f"""SELECT id, message_id, author_type, content, created_at
+                        FROM contact_replies
+                        WHERE message_id IN ({placeholders})
+                        ORDER BY created_at ASC""",
+                        tuple(msg_ids)
+                    )
+                    all_replies = cursor.fetchall()
+                    for r in all_replies:
+                        if r.get('created_at'):
+                            r['created_at'] = str(r['created_at'])
+                    replies_map = {}
+                    for r in all_replies:
+                        replies_map.setdefault(r['message_id'], []).append(r)
+                    for m in messages:
+                        if m.get('created_at'):
+                            m['created_at'] = str(m['created_at'])
+                        if m.get('replied_at'):
+                            m['replied_at'] = str(m['replied_at'])
+                        m['replies'] = replies_map.get(m['id'], [])
                 cursor.execute("SELECT COUNT(*) as total FROM contact_messages")
                 total = cursor.fetchone()['total']
                 cursor.close()
@@ -1557,7 +1614,7 @@ class DatabaseManager:
                 cursor.close()
                 return count
         except Error as e:
-            print(f"获取未读消息数失败: {e}")
+            logger.error("获取未读消息数失败: %s", e)
         finally:
             if conn:
                 DatabaseManager.return_connection(conn)
@@ -1581,7 +1638,7 @@ class DatabaseManager:
         except Error as e:
             if conn:
                 conn.rollback()
-            print(f"标记已读失败: {e}")
+            logger.error("标记已读失败: %s", e)
         finally:
             if conn:
                 DatabaseManager.return_connection(conn)
@@ -1614,8 +1671,69 @@ class DatabaseManager:
         return False, "回复失败"
 
     @staticmethod
+    def add_contact_reply(message_id, content, author_type):
+        """添加一条回复记录（支持 user 和 admin 双向回复）"""
+        conn = None
+        try:
+            conn = DatabaseManager.get_connection()
+            if conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """INSERT INTO contact_replies (message_id, author_type, content)
+                    VALUES (%s, %s, %s)""",
+                    (message_id, author_type, content)
+                )
+                # 同步更新 contact_messages：管理员回复→标记已读，用户回复→重置未读
+                cursor.execute(
+                    """UPDATE contact_messages
+                    SET reply = %s, replied_at = NOW(),
+                        is_read = %s
+                    WHERE id = %s""",
+                    (content, author_type == 'admin', message_id)
+                )
+                conn.commit()
+                cursor.close()
+                return True, "回复成功"
+        except Error as e:
+            if conn:
+                conn.rollback()
+            return False, f"回复失败: {e}"
+        finally:
+            if conn:
+                DatabaseManager.return_connection(conn)
+        return False, "回复失败"
+
+    @staticmethod
+    def get_contact_replies(message_id):
+        """获取某条消息的所有回复记录"""
+        conn = None
+        try:
+            conn = DatabaseManager.get_connection()
+            if conn:
+                cursor = conn.cursor(dictionary=True)
+                cursor.execute(
+                    """SELECT id, author_type, content, created_at
+                    FROM contact_replies
+                    WHERE message_id = %s
+                    ORDER BY created_at ASC""",
+                    (message_id,)
+                )
+                replies = cursor.fetchall()
+                for r in replies:
+                    if r.get('created_at'):
+                        r['created_at'] = str(r['created_at'])
+                cursor.close()
+                return True, replies
+        except Error as e:
+            logger.error("获取回复记录失败: %s", e)
+        finally:
+            if conn:
+                DatabaseManager.return_connection(conn)
+        return False, []
+
+    @staticmethod
     def get_unread_reply_count(username, since_time=None):
-        """获取未读回复数"""
+        """获取用户未读回复数（管理员回复了但用户还没看过的）"""
         conn = None
         try:
             conn = DatabaseManager.get_connection()
@@ -1623,21 +1741,24 @@ class DatabaseManager:
                 cursor = conn.cursor()
                 if since_time:
                     cursor.execute(
-                        """SELECT COUNT(*) FROM contact_messages
-                        WHERE username = %s AND reply IS NOT NULL
-                        AND replied_at > %s""",
+                        """SELECT COUNT(*) FROM contact_replies r
+                        JOIN contact_messages m ON r.message_id = m.id
+                        WHERE m.username = %s AND r.author_type = 'admin'
+                        AND r.created_at > %s""",
                         (username, since_time)
                     )
                 else:
                     cursor.execute(
-                        """SELECT COUNT(*) FROM contact_messages
-                        WHERE 1 = 0"""
+                        """SELECT COUNT(*) FROM contact_replies r
+                        JOIN contact_messages m ON r.message_id = m.id
+                        WHERE m.username = %s AND r.author_type = 'admin'""",
+                        (username,)
                     )
                 count = cursor.fetchone()[0]
                 cursor.close()
                 return count
         except Error as e:
-            print(f"获取未读回复数失败: {e}")
+            logger.error("获取未读回复数失败: %s", e)
         finally:
             if conn:
                 DatabaseManager.return_connection(conn)

@@ -32,7 +32,9 @@
                     </thead>
                     <tbody>
                         {% for msg in messages %}
-                        <tr class="table-row-hover {% if not msg.is_read %}fw-bold{% endif %}">
+                        <tr class="table-row-hover {% if not msg.is_read %}fw-bold{% endif %}"
+                            data-replies='{{ msg.replies | tojson | forceescape }}'
+                            data-message='{{ msg.message | e }}'>
                             <td>
                                 {% if msg.is_read %}
                                 <span class="badge bg-secondary">已读</span>
@@ -46,9 +48,9 @@
                             <td style="max-width: 300px;">
                                 <div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" 
                                      title="{{ msg.message }}">{{ msg.message }}</div>
-                                {% if msg.reply %}
+                                {% if msg.replies and msg.replies|length > 0 %}
                                 <div class="mt-1 pt-1 border-top border-secondary">
-                                    <small class="text-success"><i class="fas fa-reply me-1"></i>已回复</small>
+                                    <small class="text-success"><i class="fas fa-reply me-1"></i>{{ msg.replies|length }} 条回复</small>
                                 </div>
                                 {% endif %}
                             </td>
@@ -154,17 +156,25 @@ function viewMessage(id) {
     var cells = row.querySelectorAll('td');
     var modal = new bootstrap.Modal(document.getElementById('viewMessageModal'));
     
-    // 找到消息内容
     var name = cells[1].textContent.trim();
     var email = cells[2].textContent.trim();
     var subject = cells[3].textContent.trim();
     var fullText = cells[4].querySelector('div').getAttribute('title') || cells[4].querySelector('div').textContent.trim();
     var time = cells[5].textContent.trim();
+    
+    // 获取回复记录
+    var replies = [];
+    try {
+        var repliesData = row.getAttribute('data-replies');
+        if (repliesData) {
+            replies = JSON.parse(repliesData);
+        }
+    } catch(e) { /* ignore */ }
 
-    // 安全构建 DOM（避免 innerHTML XSS）
     var body = document.getElementById('viewMessageBody');
-    body.textContent = '';  // 清空
+    body.textContent = '';
 
+    // 信息区
     var infoRow = document.createElement('div');
     infoRow.className = 'mb-3';
     infoRow.innerHTML = '<div class="row">' +
@@ -189,15 +199,93 @@ function viewMessage(id) {
 
     body.appendChild(document.createElement('hr')).className = 'border-secondary';
 
-    var contentDiv = document.createElement('div');
-    contentDiv.className = 'mt-3';
-    contentDiv.innerHTML = '<strong>详细内容：</strong>';
-    var textDiv = document.createElement('div');
-    textDiv.className = 'mt-2 p-3';
-    textDiv.style.cssText = 'background:rgba(0,0,0,0.2);border-radius:8px;white-space:pre-wrap;';
-    textDiv.textContent = fullText;
-    contentDiv.appendChild(textDiv);
-    body.appendChild(contentDiv);
+    // 用户原始消息
+    var userMsgDiv = document.createElement('div');
+    userMsgDiv.className = 'mt-2 p-3';
+    userMsgDiv.style.cssText = 'background:rgba(102,126,234,0.1);border-left:3px solid #667eea;border-radius:6px;';
+    userMsgDiv.innerHTML = '<small class="text-muted"><i class="fas fa-user me-1"></i>' + name + '</small>';
+    var userTextDiv = document.createElement('div');
+    userTextDiv.className = 'mt-1';
+    userTextDiv.style.cssText = 'white-space:pre-wrap;';
+    userTextDiv.textContent = fullText;
+    userMsgDiv.appendChild(userTextDiv);
+    body.appendChild(userMsgDiv);
+
+    // 回复记录
+    if (replies.length > 0) {
+        var repliesTitle = document.createElement('h6');
+        repliesTitle.className = 'mt-3 mb-2';
+        repliesTitle.textContent = '对话记录';
+        body.appendChild(repliesTitle);
+
+        var collapsed = replies.length > 2;
+        var toggleBtn = document.createElement('button');
+        toggleBtn.className = 'btn btn-sm btn-outline-secondary mb-2';
+        toggleBtn.style.cssText = 'font-size:0.8rem;padding:2px 8px;';
+        toggleBtn.innerHTML = collapsed
+            ? '展开对话 <i class="fas fa-chevron-down ms-1"></i> (' + replies.length + ' 条)'
+            : '收起 <i class="fas fa-chevron-up ms-1"></i> (' + replies.length + ' 条)';
+        body.appendChild(toggleBtn);
+
+        var repliesWrapper = document.createElement('div');
+        repliesWrapper.className = 'replies-wrapper';
+        if (collapsed) repliesWrapper.style.display = 'none';
+        body.appendChild(repliesWrapper);
+
+        replies.forEach(function(r) {
+            var replyDiv = document.createElement('div');
+            var isAdmin = r.author_type === 'admin';
+            replyDiv.className = 'mt-2 p-3';
+            replyDiv.style.cssText = isAdmin
+                ? 'background:rgba(78,205,196,0.1);border-left:3px solid #4ecdc4;border-radius:6px;'
+                : 'background:rgba(102,126,234,0.05);border-left:3px solid #667eea;border-radius:6px;';
+            replyDiv.innerHTML = '<small class="' + (isAdmin ? 'text-info' : 'text-muted') + '">' +
+                '<i class="fas ' + (isAdmin ? 'fa-headset' : 'fa-user') + ' me-1"></i>' +
+                (isAdmin ? '我的回复' : name + ' 回复') +
+                ' (' + r.created_at + ')</small>';
+            var replyTextDiv = document.createElement('div');
+            replyTextDiv.className = 'mt-1';
+            replyTextDiv.style.cssText = 'white-space:pre-wrap;';
+            replyTextDiv.textContent = r.content;
+            replyDiv.appendChild(replyTextDiv);
+            repliesWrapper.appendChild(replyDiv);
+        });
+
+        // 预览：折叠时显示最后一条
+        if (collapsed) {
+            var lastR = replies[replies.length - 1];
+            var previewDiv = document.createElement('div');
+            previewDiv.id = 'adminRepliesPreview';
+            previewDiv.className = 'mt-2 p-3';
+            previewDiv.style.cssText = 'background:rgba(78,205,196,0.1);border-left:3px solid #4ecdc4;border-radius:6px;';
+            var isAdmin = lastR.author_type === 'admin';
+            previewDiv.innerHTML = '<small class="' + (isAdmin ? 'text-info' : 'text-muted') + '">' +
+                '<i class="fas ' + (isAdmin ? 'fa-headset' : 'fa-user') + ' me-1"></i>' +
+                (isAdmin ? '我的回复' : name + ' 回复') +
+                ' (' + lastR.created_at + ')</small>' +
+                '<div class="mt-1" style="white-space:pre-wrap;">' + (lastR.content || '') + '</div>';
+            body.appendChild(previewDiv);
+        }
+
+        toggleBtn.onclick = function() {
+            if (repliesWrapper.style.display === 'none') {
+                repliesWrapper.style.display = 'block';
+                var preview = document.getElementById('adminRepliesPreview');
+                if (preview) preview.style.display = 'none';
+                toggleBtn.innerHTML = '收起 <i class="fas fa-chevron-up ms-1"></i> (' + replies.length + ' 条)';
+            } else {
+                repliesWrapper.style.display = 'none';
+                var preview = document.getElementById('adminRepliesPreview');
+                if (preview) preview.style.display = 'block';
+                toggleBtn.innerHTML = '展开对话 <i class="fas fa-chevron-down ms-1"></i> (' + replies.length + ' 条)';
+            }
+        };
+    } else {
+        var noReply = document.createElement('div');
+        noReply.className = 'mt-3 text-muted text-center py-2';
+        noReply.textContent = '暂无回复记录';
+        body.appendChild(noReply);
+    }
     
     // 标记行已读
     if (row.querySelector('.badge.bg-danger')) {

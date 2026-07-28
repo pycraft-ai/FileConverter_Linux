@@ -4,6 +4,9 @@ import subprocess
 import threading
 import concurrent.futures
 from datetime import datetime
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 import pandas as pd
 import pytesseract
@@ -81,7 +84,7 @@ def _libreoffice_convert(input_path, output_dir, convert_filter=None):
         )
 
         if result.returncode != 0:
-            print(f"LibreOffice转换失败 (ret {result.returncode}): {result.stderr}")
+            logger.error("LibreOffice转换失败 (ret %s): %s", result.returncode, result.stderr)
             return None
 
         # 解析输出路径：LibreOffice 自动将扩展名替换为 .pdf
@@ -96,10 +99,10 @@ def _libreoffice_convert(input_path, output_dir, convert_filter=None):
             return out_file
         return None
     except subprocess.TimeoutExpired:
-        print("LibreOffice转换超时")
+        logger.error("LibreOffice转换超时")
         return None
     except Exception as e:
-        print(f"LibreOffice转换异常: {e}")
+        logger.error("LibreOffice转换异常: %s", e)
         return None
 
 
@@ -124,7 +127,7 @@ class Function:
                     return True
                 return False
             except Exception as e:
-                print(f"Word转PDF失败: {e}")
+                logger.error("Word转PDF失败: %s", e)
                 return False
 
     @staticmethod
@@ -206,7 +209,7 @@ img {{ max-width: 100%; }}
                 return True
             return False
         except Exception as e:
-            print(f"MD转PDF失败: {e}")
+            logger.error("MD转PDF失败: %s", e)
             # 清理可能残留的临时文件
             html_path = mdPath + '.tmp.html'
             if os.path.exists(html_path):
@@ -233,7 +236,7 @@ img {{ max-width: 100%; }}
                     return True
                 return False
             except Exception as e:
-                print(f"Excel转PDF失败: {e}")
+                logger.error("Excel转PDF失败: %s", e)
                 return False
 
     @staticmethod
@@ -253,7 +256,7 @@ img {{ max-width: 100%; }}
                     return True
                 return False
             except Exception as e:
-                print(f"PPT转PDF失败: {e}")
+                logger.error("PPT转PDF失败: %s", e)
                 return False
 
     @staticmethod
@@ -272,7 +275,7 @@ img {{ max-width: 100%; }}
                     return True
                 return False
             except Exception as e:
-                print(f"HTML转PDF失败: {e}")
+                logger.error("HTML转PDF失败: %s", e)
                 return False
 
     @staticmethod
@@ -284,7 +287,7 @@ img {{ max-width: 100%; }}
             cv.close()
             return True
         except Exception as e:
-            print(f"PDF转Word失败: {e}")
+            logger.error("PDF转Word失败: %s", e)
             return False
 
     @staticmethod
@@ -325,7 +328,7 @@ img {{ max-width: 100%; }}
                     img.close()
             return True
         except Exception as e:
-            print(f"图片转PDF失败: {e}")
+            logger.error("图片转PDF失败: %s", e)
             return False
 
     @staticmethod
@@ -339,7 +342,7 @@ img {{ max-width: 100%; }}
                 )
             return True
         except Exception as e:
-            print(f"PDF转图片失败: {e}")
+            logger.error("PDF转图片失败: %s", e)
             return False
 
     @staticmethod
@@ -351,7 +354,7 @@ img {{ max-width: 100%; }}
             data.to_excel(excelPath, index=False)
             return True
         except Exception as e:
-            print(f"CSV转Excel失败: {e}")
+            logger.error("CSV转Excel失败: %s", e)
             return False
 
     @staticmethod
@@ -363,7 +366,7 @@ img {{ max-width: 100%; }}
             data.to_csv(csvPath, encoding='utf-8', index=False)
             return True
         except Exception as e:
-            print(f"Excel转CSV失败: {e}")
+            logger.error("Excel转CSV失败: %s", e)
             return False
 
     @staticmethod
@@ -392,10 +395,10 @@ img {{ max-width: 100%; }}
                 f.write(text)
             return True
         except TimeoutError:
-            print("PDF OCR超时")
+            logger.error("PDF OCR超时")
             return False
         except Exception as e:
-            print(f"PDF OCR失败: {e}")
+            logger.error("PDF OCR失败: %s", e)
             return False
 
     @staticmethod
@@ -436,10 +439,10 @@ img {{ max-width: 100%; }}
                 return False
             return False
         except TimeoutError:
-            print("图片 OCR超时")
+            logger.error("图片 OCR超时")
             return False
         except Exception as e:
-            print(f"图片OCR失败: {e}")
+            logger.error("图片OCR失败: %s", e)
             return False
 
     @staticmethod
@@ -502,7 +505,7 @@ img {{ max-width: 100%; }}
             prs.save(pptPath)
             return True
         except Exception as e:
-            print(f"图片转PPT失败: {e}")
+            logger.error("图片转PPT失败: %s", e)
             return False
 
     @staticmethod
@@ -516,7 +519,7 @@ img {{ max-width: 100%; }}
             merger.close()
             return True
         except Exception as e:
-            print(f"合并PDF失败: {e}")
+            logger.error("合并PDF失败: %s", e)
             return False
 
     @staticmethod
@@ -525,7 +528,7 @@ img {{ max-width: 100%; }}
         try:
             reader = PdfReader(pdfPath)
             if reader.is_encrypted:
-                print("PDF已加密，请先解密后再加密")
+                logger.error("PDF已加密，请先解密后再加密")
                 return False
 
             writer = PdfWriter()
@@ -542,7 +545,7 @@ img {{ max-width: 100%; }}
                 writer.write(f)
             return True
         except Exception as e:
-            print(f"PDF加密失败: {e}")
+            logger.error("PDF加密失败: %s", e)
             return False
 
     @staticmethod
@@ -554,7 +557,7 @@ img {{ max-width: 100%; }}
             if reader.is_encrypted:
                 result = reader.decrypt(password)
                 if result == 0:
-                    print("PDF解密失败：密码错误")
+                    logger.error("PDF解密失败：密码错误")
                     return False
 
             writer = PdfWriter()
@@ -569,7 +572,7 @@ img {{ max-width: 100%; }}
                 writer.write(f)
             return True
         except Exception as e:
-            print(f"PDF解密失败: {e}")
+            logger.error("PDF解密失败: %s", e)
             return False
 
     # ==========================================================
@@ -595,7 +598,7 @@ img {{ max-width: 100%; }}
                         zf.write(path, name)
             return True
         except Exception as e:
-            print(f"ZIP压缩失败: {e}")
+            logger.error("ZIP压缩失败: %s", e)
             return False
 
     @staticmethod
@@ -609,7 +612,7 @@ img {{ max-width: 100%; }}
                     tf.add(path, arcname=name)
             return True
         except Exception as e:
-            print(f"TAR.GZ压缩失败: {e}")
+            logger.error("TAR.GZ压缩失败: %s", e)
             return False
 
     @staticmethod
@@ -629,7 +632,7 @@ img {{ max-width: 100%; }}
                         szf.write(path, name)
             return True
         except Exception as e:
-            print(f"7Z压缩失败: {e}")
+            logger.error("7Z压缩失败: %s", e)
             return False
 
     @staticmethod
@@ -653,7 +656,7 @@ img {{ max-width: 100%; }}
                     return False
             return False
         except Exception as e:
-            print(f"检测加密状态失败: {e}")
+            logger.error("检测加密状态失败: %s", e)
             return False
 
     @staticmethod
@@ -685,10 +688,10 @@ img {{ max-width: 100%; }}
                     szf.extractall(output_dir)
                 return True
             else:
-                print(f"不支持的解压格式: {input_path}")
+                logger.error("不支持的解压格式: %s", input_path)
                 return False
         except Exception as e:
-            print(f"解压失败: {e}")
+            logger.error("解压失败: %s", e)
             return False
 
     @staticmethod
@@ -716,7 +719,7 @@ img {{ max-width: 100%; }}
                     zf.write(file_path, arcname)
             return True
         except Exception as e:
-            print(f"压缩包去密失败: {e}")
+            logger.error("压缩包去密失败: %s", e)
             return False
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
