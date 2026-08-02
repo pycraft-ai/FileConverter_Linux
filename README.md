@@ -53,13 +53,20 @@
 - 转换历史记录查询
 - 重复文件智能检测（避免误操作浪费次数）
 
+### 游客模式（免登录体验）
+- 未登录用户可直接访问主页，以**游客身份**使用全部转换功能
+- 游客默认可体验 **1 次**转换（`GUEST_MAX_TIMES` 可配置），用完提示登录解锁更多权益
+- 游客无需注册即可下载转换结果
+- **防滥用机制**：游客次数存于 session cookie，可被无痕浏览/清 cookie 绕过，因此额外基于**真实 IP** 做双重限流（每小时 + 每日），换浏览器也无法绕过
+
 ### 管理后台
 - 数据仪表盘（Chart.js 图表：模式饼图、趋势折线图、用户排行）
 - 用户管理（充值次数、延长期限、封禁/解封）
 - 公告管理（CRUD）
 - 联系留言管理（支持多轮回复）
 - IP 访问分析与地域分布（支持地图可视化）
-- 转换日志查询
+- **转换来源分析**（登录用户 / 游客分层统计，IP 维度，可一键封禁或查看其日志）
+- 转换日志查询（含 IP 列，支持按 IP / 用户名过滤，游客显示专属徽章）
 - 存储空间统计
 
 ### 主题切换
@@ -78,6 +85,8 @@
 - HTML 危险内容扫描（`<script>`、`<iframe>`、`javascript:`、`eval()` 等）
 - 路径穿越防护（文件下载路径安全验证）
 - X-Forwarded-For 信任代理白名单
+- **游客防滥用**（真实 IP 维度限流：每小时 `GUEST_IP_HOURLY_LIMIT` 次 + 每日 `GUEST_IP_DAILY_LIMIT` 次）
+- **转换日志 IP 溯源**（所有转换记录真实来源 IP，含游客）
 
 ## 环境要求
 
@@ -160,6 +169,14 @@ chmod +x start.sh
 | `UPLOAD_MAX_SIZE` | 单文件大小上限 (MB) | `50` |
 | `CDN_BASE_URL` | 前端 CDN 资源地址 | `https://cdn.staticfile.org` |
 
+### 游客模式
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `GUEST_MAX_TIMES` | 游客可免费体验的转换次数 | `1` |
+| `GUEST_IP_HOURLY_LIMIT` | 同一 IP 每小时最多游客转换次数（防滥用） | `5` |
+| `GUEST_IP_DAILY_LIMIT` | 同一 IP 每天（24h 滑动窗口）最多游客转换次数（防滥用） | `10` |
+
 ### 安全相关
 
 | 变量 | 说明 | 默认值 |
@@ -214,7 +231,7 @@ chmod +x start.sh
 | 表名 | 说明 |
 |------|------|
 | `users` | 用户表（密码哈希、角色、过期时间、剩余次数） |
-| `conversion_logs` | 转换日志（用户、模式、状态、耗时） |
+| `conversion_logs` | 转换日志（用户、模式、状态、来源 IP，游客用户名为 `guest`） |
 | `announcements` | 系统公告 |
 | `ip_access_logs` | IP 访问日志（含地理位置） |
 | `ip_blacklist` | IP 黑名单 |
@@ -226,7 +243,7 @@ chmod +x start.sh
 
 | 路由 | 方法 | 说明 |
 |------|------|------|
-| `/` | GET | 首页（文件转换） |
+| `/` | GET | 首页（文件转换，未登录以游客身份访问） |
 | `/convert` | POST | 执行文件转换 |
 | `/download/<filename>` | GET | 下载转换后的文件 |
 | `/dashboard` | GET | 用户个人仪表盘 |
@@ -242,7 +259,7 @@ chmod +x start.sh
 | `/admin/dashboard` | GET | 管理后台全屏图表 |
 | `/admin/<action>` | POST | 用户管理操作（封禁/解封/续期/充值） |
 | `/admin/announcements` | GET/POST | 公告管理 |
-| `/admin/ip_analysis` | GET | IP 访问分析 |
+| `/admin/ip_analysis` | GET | IP 访问分析（含用户/游客转换来源分析） |
 | `/admin/contacts` | GET | 联系留言管理 |
 
 ## 技术栈
@@ -267,3 +284,4 @@ chmod +x start.sh
 6. **代理环境** — 如使用 Nginx / Cloudflare，配置 `TRUSTED_PROXY_IPS` 以获取真实 IP
 7. **LibreOffice 互斥锁** — 所有 Office 相关转换使用线程锁串行执行，避免 LibreOffice 实例冲突
 8. **OCR 超时控制** — 使用 `ThreadPoolExecutor` + `future.result(timeout)` 实现跨平台线程安全超时，避免卡死
+9. **游客防滥用** — 游客次数存于 cookie，可用无痕浏览/清 cookie 绕过；管理员可在 **IP 分析 → 转换来源分析** 中按真实 IP 监控游客转换行为，异常高频 IP 建议封禁
