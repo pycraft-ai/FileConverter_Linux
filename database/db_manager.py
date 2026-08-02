@@ -264,16 +264,21 @@ class DatabaseManager:
                             filename        TEXT,
                             success         BOOLEAN NOT NULL,
                             message         TEXT,
+                            output_path     VARCHAR(500) DEFAULT '',
+                            ip_address      VARCHAR(45) DEFAULT '',
                             operation_time  DATETIME DEFAULT CURRENT_TIMESTAMP,
                             INDEX idx_username (username),
                             INDEX idx_operation_time (operation_time),
-                            INDEX idx_user_time (username, operation_time)
+                            INDEX idx_user_time (username, operation_time),
+                            INDEX idx_ip_time (ip_address, operation_time)
                         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                     """)
                 else:
                     for stmt in [
                         "ALTER TABLE conversion_logs ADD INDEX idx_user_time (username, operation_time)",
-                        "ALTER TABLE conversion_logs ADD COLUMN output_path VARCHAR(500) DEFAULT '' AFTER message"
+                        "ALTER TABLE conversion_logs ADD COLUMN output_path VARCHAR(500) DEFAULT '' AFTER message",
+                        "ALTER TABLE conversion_logs ADD COLUMN ip_address VARCHAR(45) DEFAULT '' AFTER output_path",
+                        "ALTER TABLE conversion_logs ADD INDEX idx_ip_time (ip_address, operation_time)"
                     ]:
                         try:
                             cursor.execute(stmt)
@@ -590,7 +595,7 @@ class DatabaseManager:
                 )
 
                 if not is_valid:
-                    return False, None, "密码错误"
+                    return False, None, "用户名或密码错误"
 
                 # 自动升级旧格式密码
                 if needs_upgrade:
@@ -881,7 +886,7 @@ class DatabaseManager:
     # ========================
 
     @staticmethod
-    def log_conversion(username, mode, filename, success, message="", output_path=""):
+    def log_conversion(username, mode, filename, success, message="", output_path="", ip_address=""):
         """记录转换操作日志"""
         conn = None
         try:
@@ -890,9 +895,9 @@ class DatabaseManager:
                 cursor = conn.cursor()
                 cursor.execute(
                     """INSERT INTO conversion_logs
-                    (username, mode, filename, success, message, output_path)
-                    VALUES (%s, %s, %s, %s, %s, %s)""",
-                    (username, mode, filename, success, message, output_path)
+                    (username, mode, filename, success, message, output_path, ip_address)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+                    (username, mode, filename, success, message, output_path, ip_address or '')
                 )
                 conn.commit()
                 cursor.close()
@@ -907,30 +912,26 @@ class DatabaseManager:
         return False
 
     @staticmethod
-    def get_conversion_logs(username=None, limit=100, offset=0):
-        """获取转换日志"""
+    def get_conversion_logs(username=None, ip_address=None, limit=100, offset=0):
+        """获取转换日志，支持按用户名或 IP 过滤"""
         conn = None
         try:
             conn = DatabaseManager.get_connection()
             if conn:
                 cursor = conn.cursor(dictionary=True)
+                query = """SELECT id, username, mode, filename, success, message, output_path, ip_address, operation_time
+                        FROM conversion_logs
+                        WHERE 1=1"""
+                params = []
                 if username:
-                    cursor.execute(
-                        """SELECT id, username, mode, filename, success, message, output_path, operation_time
-                        FROM conversion_logs
-                        WHERE username = %s
-                        ORDER BY operation_time DESC
-                        LIMIT %s OFFSET %s""",
-                        (username, limit, offset)
-                    )
-                else:
-                    cursor.execute(
-                        """SELECT id, username, mode, filename, success, message, operation_time
-                        FROM conversion_logs
-                        ORDER BY operation_time DESC
-                        LIMIT %s OFFSET %s""",
-                        (limit, offset)
-                    )
+                    query += " AND username = %s"
+                    params.append(username)
+                if ip_address:
+                    query += " AND ip_address = %s"
+                    params.append(ip_address)
+                query += " ORDER BY operation_time DESC LIMIT %s OFFSET %s"
+                params.extend([limit, offset])
+                cursor.execute(query, tuple(params))
                 logs = cursor.fetchall()
                 cursor.close()
                 return True, logs
@@ -942,18 +943,23 @@ class DatabaseManager:
         return False, []
 
     @staticmethod
-    def get_log_count(username=None):
-        """获取日志总数"""
+    def get_log_count(username=None, ip_address=None):
+        """获取日志总数，支持按用户名或 IP 过滤"""
         conn = None
         try:
             conn = DatabaseManager.get_connection()
             if conn:
                 cursor = conn.cursor()
-                if username:
-                    cursor.execute(
-                        "SELECT COUNT(*) FROM conversion_logs WHERE username = %s",
-                        (username,)
-                    )
+                if username or ip_address:
+                    query = "SELECT COUNT(*) FROM conversion_logs WHERE 1=1"
+                    params = []
+                    if username:
+                        query += " AND username = %s"
+                        params.append(username)
+                    if ip_address:
+                        query += " AND ip_address = %s"
+                        params.append(ip_address)
+                    cursor.execute(query, tuple(params))
                 else:
                     cursor.execute("SELECT COUNT(*) FROM conversion_logs")
                 count = cursor.fetchone()[0]
@@ -1378,6 +1384,78 @@ class DatabaseManager:
             if conn:
                 DatabaseManager.return_connection(conn)
         return False, []
+
+    @staticmethod
+    def get_conversion_ip_stats(hours=24, limit=50):
+        """按身份统计转换来源 IP，区分用户/游客。
+        返回 { user_ips: [...], guest_ips: [...], total_guest_converts, total_user_converts }
+        """
+        conn = None
+        try:
+            conn = DatabaseManager.get_connection()
+            if conn:
+                cursor = conn.cursor(dictionary=True)
+
+                # 游客转换 IP 排行（username='guest'）
+                cursor.execute(
+                    """SELECT ip_address, COUNT(*) as convert_count,
+                             SUM(CASE WHEN success THEN 1 ELSE 0 END) as success_count,
+                             MAX(operation_time) as last_convert
+                    FROM conversion_logs
+                    WHERE username = 'guest'
+                      AND ip_address != ''
+                      AND operation_time >= DATE_SUB(NOW(), INTERVAL %s HOUR)
+                    GROUP BY ip_address
+                    ORDER BY convert_count DESC
+                    LIMIT %s""",
+                    (hours, limit)
+                )
+                guest_ips = cursor.fetchall()
+
+                # 登录用户转换 IP 排行（username != 'guest'）
+                cursor.execute(
+                    """SELECT ip_address, COUNT(*) as convert_count,
+                             SUM(CASE WHEN success THEN 1 ELSE 0 END) as success_count,
+                             MAX(operation_time) as last_convert
+                    FROM conversion_logs
+                    WHERE username != 'guest'
+                      AND ip_address != ''
+                      AND operation_time >= DATE_SUB(NOW(), INTERVAL %s HOUR)
+                    GROUP BY ip_address
+                    ORDER BY convert_count DESC
+                    LIMIT %s""",
+                    (hours, limit)
+                )
+                user_ips = cursor.fetchall()
+
+                # 总计：游客转换数 / 用户转换数
+                cursor.execute(
+                    """SELECT SUM(CASE WHEN username='guest' THEN 1 ELSE 0 END) as guest_total,
+                             SUM(CASE WHEN username!='guest' THEN 1 ELSE 0 END) as user_total
+                    FROM conversion_logs
+                    WHERE operation_time >= DATE_SUB(NOW(), INTERVAL %s HOUR)""",
+                    (hours,)
+                )
+                total_row = cursor.fetchone()
+
+                for group in (guest_ips, user_ips):
+                    for ip in group:
+                        if ip.get('last_convert'):
+                            ip['last_convert'] = str(ip['last_convert'])
+
+                cursor.close()
+                return True, {
+                    'guest_ips': guest_ips,
+                    'user_ips': user_ips,
+                    'guest_total': int(total_row['guest_total'] or 0) if total_row else 0,
+                    'user_total': int(total_row['user_total'] or 0) if total_row else 0
+                }
+        except Error as e:
+            return False, f"获取转换IP统计失败: {e}"
+        finally:
+            if conn:
+                DatabaseManager.return_connection(conn)
+        return False, {}
 
     @staticmethod
     def get_ip_location(ip_address):

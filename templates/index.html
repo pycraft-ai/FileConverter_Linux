@@ -3,12 +3,14 @@
 
 {% block head_extra %}
 <meta name="login-type" content="{{ login_type or '' }}">
+<meta name="is-guest" content="{{ 'true' if is_guest else 'false' }}">
+<meta name="guest-remaining" content="{{ guest_remaining }}">
 {% endblock %}
 
 {% block content %}
 <style>
     /* ===== 主页特有样式 ===== */
-    .main-wrap { max-width: 960px; }
+    .main-wrap { max-width: 960px; margin: 0 auto; }
 
     /* 页头 */
     .page-header {
@@ -31,10 +33,32 @@
     .announce-bar .close-ann { margin-left: auto; cursor: pointer; color: #d97706; border: none; background: none; opacity: .6; }
     .announce-bar .close-ann:hover { opacity: 1; }
 
-    /* 次数不足警告 */
-    .sidebar-stat.warn { background: linear-gradient(135deg, rgba(239,68,68,.1), rgba(239,68,68,.05)); }
-    .sidebar-stat.warn .stat-num { color: #ef4444; }
-    .sidebar-stat.warn .stat-icon { background: #ef4444; }
+    /* 游客剩余次数提示条 */
+    .guest-remain-bar {
+        display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+        background: #eef2ff; border: 1px solid #a5b4fc; border-radius: 12px;
+        padding: 12px 18px; margin-bottom: 20px;
+        font-size: 13px; color: #3730a3;
+    }
+    .guest-remain-bar > i { color: #667eea; font-size: 15px; }
+    .guest-remain-bar strong { font-weight: 700; }
+    .guest-remain-bar .guest-remain-num {
+        display: inline-flex; align-items: center; justify-content: center;
+        min-width: 22px; height: 22px; padding: 0 6px;
+        background: #667eea; color: #fff; border-radius: 999px; font-size: 12px;
+    }
+    .guest-remain-bar a {
+        margin-left: auto; padding: 5px 14px; border-radius: 8px;
+        background: #667eea; color: #fff; text-decoration: none;
+        font-weight: 600; font-size: 12px; transition: all .15s;
+    }
+    .guest-remain-bar a:hover { background: #5a6fd6; color: #fff; }
+    .guest-remain-bar.warn { background: #fef2f2; border-color: #fca5a5; color: #991b1b; }
+    .guest-remain-bar.warn .guest-remain-num { background: #ef4444; }
+
+    /* 次数不足警告 - 左下角统计卡片 */
+    #blStat.warn .sf-stat-icon { background: #ef4444; }
+    #blStat.warn .sf-stat-num { color: #ef4444; }
 
     /* 卡片 */
     .card {
@@ -342,6 +366,17 @@
             文件转换
         </h1>
     </div>
+
+    <!-- 游客剩余次数提示 -->
+    {% if is_guest %}
+    <div class="guest-remain-bar" id="guestRemainBar">
+        <i class="fas fa-gift"></i>
+        您当前是<strong>游客</strong>，还可体验
+        <strong class="guest-remain-num" id="guestRemainNum">{{ guest_remaining }}</strong>
+        次转换，登录后解锁全部功能与更多次数
+        <a href="{{ url_for('auth.login') }}"><i class="fas fa-sign-in-alt"></i> 去登录</a>
+    </div>
+    {% endif %}
 
     <!-- 公告 -->
     {% if announcements %}

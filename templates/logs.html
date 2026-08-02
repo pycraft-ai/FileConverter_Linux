@@ -19,17 +19,23 @@
             <div class="glass-effect mb-4 animate-slide-left">
                 <div class="row align-items-center">
                     <div class="col-md-6">
-                        <form method="GET" action="{{ url_for('admin.view_logs') }}" class="d-flex gap-2">
+                        <form method="GET" action="{{ url_for('admin.view_logs') }}" class="d-flex gap-2 flex-wrap">
                             <input type="text" 
                                    name="username" 
                                    class="form-control" 
                                    placeholder="输入用户名筛选..."
                                    value="{{ username_filter }}"
-                                   style="background: rgba(255,255,255,0.8); border: 1px solid rgba(0,0,0,0.15); color: #333;">
+                                   style="width: 150px; background: rgba(255,255,255,0.8); border: 1px solid rgba(0,0,0,0.15); color: #333;">
+                            <input type="text" 
+                                   name="ip" 
+                                   class="form-control" 
+                                   placeholder="输入IP筛选..."
+                                   value="{{ ip_filter }}"
+                                   style="width: 150px; background: rgba(255,255,255,0.8); border: 1px solid rgba(0,0,0,0.15); color: #333;">
                             <button type="submit" class="btn btn-gradient">
                                 <i class="fas fa-search me-1"></i>搜索
                             </button>
-                            {% if username_filter %}
+                            {% if username_filter or ip_filter %}
                             <a href="{{ url_for('admin.view_logs') }}" class="btn btn-outline-light">
                                 <i class="fas fa-times"></i>清除
                             </a>
@@ -53,7 +59,8 @@
                         <thead>
                             <tr>
                                 <th style="width: 60px;"><i class="fas fa-hashtag me-1"></i>ID</th>
-                                <th><i class="fas fa-user me-1"></i>用户名</th>
+                                <th><i class="fas fa-user me-1"></i>用户</th>
+                                <th><i class="fas fa-network-wired me-1"></i>IP地址</th>
                                 <th><i class="fas fa-cog me-1"></i>转换模式</th>
                                 <th><i class="fas fa-file me-1"></i>文件名</th>
                                 <th style="width: 100px;"><i class="fas fa-check-circle me-1"></i>状态</th>
@@ -66,9 +73,22 @@
                             <tr>
                                 <td><strong>{{ log['id'] }}</strong></td>
                                 <td>
+                                    {% if log['username'] == 'guest' %}
+                                    <span class="badge" style="background: rgba(245, 158, 11, 0.2); color: #f59e0b;" title="未登录游客">
+                                        <i class="fas fa-user-secret me-1"></i>游客
+                                    </span>
+                                    {% else %}
                                     <span class="badge" style="background: rgba(102, 126, 234, 0.2); color: #667eea;">
                                         <i class="fas fa-user me-1"></i>{{ log['username'] }}
                                     </span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if log.get('ip_address') %}
+                                    <code style="font-size: 12px;">{{ log['ip_address'] }}</code>
+                                    {% else %}
+                                    <small class="text-muted">—</small>
+                                    {% endif %}
                                 </td>
                                 <td>
                                     <span class="badge" style="background: rgba(118, 75, 162, 0.2); color: #a78bfa;">
@@ -76,7 +96,7 @@
                                     </span>
                                 </td>
                                 <td>
-                                    <small class="text-truncate d-inline-block" style="max-width: 300px;" title="{{ log['filename'] }}">
+                                    <small class="text-truncate d-inline-block" style="max-width: 260px;" title="{{ log['filename'] }}">
                                         {{ log['filename'] or '—' }}
                                     </small>
                                 </td>
@@ -112,7 +132,7 @@
                     <ul class="pagination justify-content-center">
                         {% if page > 1 %}
                         <li class="page-item">
-                            <a class="page-link" href="{{ url_for('admin.view_logs', page=page-1, per_page=per_page, username=username_filter) }}">
+                            <a class="page-link" href="{{ url_for('admin.view_logs', page=page-1, per_page=per_page, username=username_filter, ip=ip_filter) }}">
                                 <i class="fas fa-chevron-left"></i>
                             </a>
                         </li>
@@ -125,7 +145,7 @@
                             </li>
                             {% elif p <= 3 or p > total_pages - 3 or (p >= page - 1 and p <= page + 1) %}
                             <li class="page-item">
-                                <a class="page-link" href="{{ url_for('admin.view_logs', page=p, per_page=per_page, username=username_filter) }}">
+                                <a class="page-link" href="{{ url_for('admin.view_logs', page=p, per_page=per_page, username=username_filter, ip=ip_filter) }}">
                                     {{ p }}
                                 </a>
                             </li>
@@ -138,7 +158,7 @@
                         
                         {% if page < total_pages %}
                         <li class="page-item">
-                            <a class="page-link" href="{{ url_for('admin.view_logs', page=page+1, per_page=per_page, username=username_filter) }}">
+                            <a class="page-link" href="{{ url_for('admin.view_logs', page=page+1, per_page=per_page, username=username_filter, ip=ip_filter) }}">
                                 <i class="fas fa-chevron-right"></i>
                             </a>
                         </li>

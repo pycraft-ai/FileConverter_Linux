@@ -10,7 +10,7 @@ from werkzeug.utils import secure_filename
 from config import Config
 from converter.converter_engine import Function
 from database.db_manager import DatabaseManager
-from utils import validate_file_content
+from utils import validate_file_content, get_client_ip, check_rate_limit
 from utils.logger import get_logger
 
 converter_bp = Blueprint('converter', __name__)
@@ -248,59 +248,126 @@ def allowed_file(filename, mode):
 
 @converter_bp.route('/')
 def index():
-    if 'username' not in session:
-        return redirect(url_for('auth.login'))
+    # ---- 登录用户：正常展示 ----
+    if 'username' in session:
+        user = DatabaseManager.get_user_by_username(session['username'])
+        if not user:
+            session.clear()
+            return redirect(url_for('auth.login'))
 
-    user = DatabaseManager.get_user_by_username(session['username'])
-    if not user:
-        session.clear()
-        return redirect(url_for('auth.login'))
+        if user.get('is_block'):
+            session.clear()
+            flash('您的账户已被封禁', 'error')
+            return redirect(url_for('auth.login'))
 
-    if user.get('is_block'):
-        session.clear()
-        flash('您的账户已被封禁', 'error')
-        return redirect(url_for('auth.login'))
+        ann_success, announcements = DatabaseManager.get_active_announcements(5)
+        if not ann_success:
+            announcements = []
+
+        return render_template(
+            'index.html',
+            modes=MODE_LIST,
+            user=user,
+            is_guest=False,
+            guest_remaining=0,
+            login_type=session.get('login_type', 'times'),
+            announcements=announcements
+        )
+
+    # ---- 游客：允许访问主页，限制可体验次数 ----
+    session['is_guest'] = True
+    session.setdefault('guest_used_times', 0)
 
     ann_success, announcements = DatabaseManager.get_active_announcements(5)
     if not ann_success:
         announcements = []
 
+    guest_remaining = max(Config.GUEST_MAX_TIMES - session.get('guest_used_times', 0), 0)
+
     return render_template(
         'index.html',
         modes=MODE_LIST,
-        user=user,
-        login_type=session.get('login_type', 'times'),
+        user=None,
+        is_guest=True,
+        guest_remaining=guest_remaining,
+        login_type='guest',
         announcements=announcements
     )
 
 
 @converter_bp.route('/convert', methods=['POST'])
 def convert():
-    if 'username' not in session:
-        return jsonify({'success': False, 'message': '请先登录'})
-
     mode = request.form.get('mode', '')
     if mode not in MODE_LIST:
         logger.warning("无效的转换模式 | user=%s mode=%s", session.get('username'), repr(mode))
         return jsonify({'success': False, 'message': '无效的转换模式'})
 
-    user = DatabaseManager.get_user_by_username(session['username'])
-    if not user:
-        return jsonify({'success': False, 'message': '用户不存在'})
-    if user['is_block']:
-        return jsonify({'success': False, 'message': '账户已被封禁'})
+    # ---- 判断身份：登录用户 / 游客 ----
+    is_guest = 'username' not in session
+    if is_guest:
+        session['is_guest'] = True
+        session.setdefault('guest_used_times', 0)
 
-    login_type = session.get('login_type', 'times')
-    if login_type == 'time':
-        if datetime.now() > user['expiration_date']:
-            return jsonify({'success': False, 'message': '账户已过期'})
-    elif login_type == 'times':
-        if user['remaining_times'] <= 0:
-            return jsonify({'success': False, 'message': '剩余次数不足'})
+        # ===== 游客防滥用（IP 维度限流）=====
+        # 游客次数存在 session cookie，可被无痕浏览/清 cookie 绕过，
+        # 因此额外基于真实 IP 做限流，换浏览器也无法绕过。
+        client_ip = get_client_ip() or request.remote_addr
+        # 每小时窗口限流
+        allowed_hourly, _ = check_rate_limit(
+            f'guest_hourly:{client_ip}', Config.GUEST_IP_HOURLY_LIMIT, 3600
+        )
+        if not allowed_hourly:
+            logger.warning("游客转换触发小时级限流 | ip=%s", client_ip)
+            return jsonify({
+                'success': False,
+                'message': f'当前网络在 1 小时内使用游客转换过于频繁，请稍后再试或登录解锁',
+                'need_login': False
+            })
+        # 每天（24小时滑动窗口）限流
+        allowed_daily, _ = check_rate_limit(
+            f'guest_daily:{client_ip}', Config.GUEST_IP_DAILY_LIMIT, 24 * 3600
+        )
+        if not allowed_daily:
+            logger.warning("游客转换触发每日限流 | ip=%s", client_ip)
+            return jsonify({
+                'success': False,
+                'message': f'当前网络今天的游客转换次数已达上限，请明天再试或登录解锁',
+                'need_login': False
+            })
+
+        # 游客 session 次数校验：用完则提示登录
+        if session.get('guest_used_times', 0) >= Config.GUEST_MAX_TIMES:
+            logger.info("游客体验次数已用完 | ip=%s", client_ip)
+            return jsonify({
+                'success': False,
+                'message': f'游客只能体验 {Config.GUEST_MAX_TIMES} 次，登录即可解锁更多权益',
+                'need_login': True
+            })
+        user = None
+        login_type = 'guest'
+    else:
+        user = DatabaseManager.get_user_by_username(session['username'])
+        if not user:
+            return jsonify({'success': False, 'message': '用户不存在'})
+        if user['is_block']:
+            return jsonify({'success': False, 'message': '账户已被封禁'})
+
+        login_type = session.get('login_type', 'times')
+        if login_type == 'time':
+            if datetime.now() > user['expiration_date']:
+                return jsonify({'success': False, 'message': '账户已过期'})
+        elif login_type == 'times':
+            if user['remaining_times'] <= 0:
+                return jsonify({'success': False, 'message': '剩余次数不足'})
+
+    # 统一标识用于日志
+    _uname = 'guest' if is_guest else session['username']
+    # 真实客户端 IP（用于日志溯源 / 游客防滥用）
+    _client_ip = get_client_ip() or request.remote_addr or ''
 
     task_id = uuid.uuid4().hex
     input_type = MODE_INPUT_TYPE.get(mode, 'file')
-    logger.info("开始转换 | user=%s mode=%s task_id=%s", session['username'], mode, task_id)
+    logger.info("开始转换 | user=%s mode=%s task_id=%s", _uname, mode, task_id)
 
     try:
         input_paths = []
@@ -869,10 +936,10 @@ def convert():
             # 记录成功日志（使用原始文件名，而非哈希后的保存路径）
             filename_list = ', '.join(original_filenames) if original_filenames else ', '.join([os.path.basename(p) for p in input_paths])
             DatabaseManager.log_conversion(
-                session['username'], mode, filename_list, True, '转换成功',
-                output_path=output_path
+                _uname, mode, filename_list, True, '转换成功',
+                output_path=output_path, ip_address=_client_ip
             )
-            logger.info("转换成功 | user=%s mode=%s files=%s", session['username'], mode, filename_list)
+            logger.info("转换成功 | user=%s mode=%s files=%s", _uname, mode, filename_list)
 
             # 保存本次转换的文件信息（用于下次重复检测）
             if original_filenames and input_paths:
@@ -886,7 +953,12 @@ def convert():
 
             deduction_failed = False
             remaining_times = None
-            if login_type == 'times':
+
+            if is_guest:
+                # 游客：用 session 累计体验次数，不扣数据库次数
+                session['guest_used_times'] = session.get('guest_used_times', 0) + 1
+                remaining_times = max(Config.GUEST_MAX_TIMES - session['guest_used_times'], 0)
+            elif login_type == 'times':
                 success, msg = DatabaseManager.decrease_user_times(
                     session['username'], 1
                 )
@@ -898,14 +970,15 @@ def convert():
                     if match:
                         remaining_times = int(match.group(1))
 
-            updated_user = DatabaseManager.get_user_by_username(session['username'])
-            if updated_user:
-                current_remaining = updated_user.get('remaining_times', 0)
-                session['remaining_times'] = current_remaining
-                if remaining_times is None:
-                    remaining_times = current_remaining
-            else:
-                session['remaining_times'] = remaining_times or session.get('remaining_times', 0)
+            if not is_guest:
+                updated_user = DatabaseManager.get_user_by_username(session['username'])
+                if updated_user:
+                    current_remaining = updated_user.get('remaining_times', 0)
+                    session['remaining_times'] = current_remaining
+                    if remaining_times is None:
+                        remaining_times = current_remaining
+                else:
+                    session['remaining_times'] = remaining_times or session.get('remaining_times', 0)
 
             output_basename = os.path.basename(output_path)
             # 去除 task_id_ 前缀得到显示名
@@ -937,9 +1010,10 @@ def convert():
         else:
             filename_list = ', '.join(original_filenames) if original_filenames else ', '.join([os.path.basename(p) for p in input_paths])
             DatabaseManager.log_conversion(
-                session['username'], mode, filename_list, False, '转换失败'
+                _uname, mode, filename_list, False, '转换失败',
+                ip_address=_client_ip
             )
-            logger.warning("转换失败 | user=%s mode=%s files=%s", session['username'], mode, filename_list)
+            logger.warning("转换失败 | user=%s mode=%s files=%s", _uname, mode, filename_list)
 
             # 根据模式和上下文给出特定错误提示
             has_password = bool(request.form.get('password', '').strip())
@@ -979,10 +1053,11 @@ def convert():
     except Exception as e:
         # 记录异常日志（详细信息写入服务端日志，前端只返回通用错误）
         mode_safe = request.form.get('mode', '未知')
-        logger.error("转换异常 | user=%s mode=%s err=%s exc=%s", session.get('username'), mode_safe, e, type(e).__name__)
+        logger.error("转换异常 | user=%s mode=%s err=%s exc=%s", _uname, mode_safe, e, type(e).__name__)
         DatabaseManager.log_conversion(
-            session.get('username', '未知'), mode_safe, '', False,
-            f'系统异常: {type(e).__name__}'  # 只记录异常类型，不记录详细信息
+            _uname, mode_safe, '', False,
+            f'系统异常: {type(e).__name__}',  # 只记录异常类型，不记录详细信息
+            ip_address=_client_ip
         )
         return jsonify({'success': False, 'message': '服务器处理出错，请稍后重试或联系管理员'})
 
@@ -990,7 +1065,8 @@ def convert():
 @converter_bp.route('/download/<path:filename>')
 def download(filename):
     """下载转换后的文件（支持子路径，如 taskid_解压文件/sub/file.txt）"""
-    if 'username' not in session:
+    # 游客允许下载（仅能凭带 task_id 的 URL 下载自己的转换结果）
+    if 'username' not in session and not session.get('is_guest'):
         return redirect(url_for('auth.login'))
 
     # 安全检查：防止路径穿越

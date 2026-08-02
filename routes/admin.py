@@ -153,30 +153,32 @@ def view_logs():
     page = request.args.get('page', 1, type=int)
     per_page = request.args.get('per_page', 50, type=int)
     username_filter = request.args.get('username', '')
-    
+    ip_filter = request.args.get('ip', '')
+
     offset = (page - 1) * per_page
-    
+
     # 获取日志总数
-    if username_filter:
-        _, total_count = DatabaseManager.get_log_count(username_filter)
-    else:
-        _, total_count = DatabaseManager.get_log_count()
-    
+    _, total_count = DatabaseManager.get_log_count(
+        username=username_filter if username_filter else None,
+        ip_address=ip_filter if ip_filter else None
+    )
+
     total_pages = (total_count + per_page - 1) // per_page
-    
+
     # 获取日志列表
     success, logs = DatabaseManager.get_conversion_logs(
         username=username_filter if username_filter else None,
+        ip_address=ip_filter if ip_filter else None,
         limit=per_page,
         offset=offset
     )
-    
+
     if success:
         # 处理 datetime 对象为字符串
         for log in logs:
             if log.get('operation_time'):
                 log['operation_time'] = str(log['operation_time'])
-        
+
         return render_template(
             'logs.html',
             logs=logs,
@@ -184,11 +186,13 @@ def view_logs():
             per_page=per_page,
             total_count=total_count,
             total_pages=total_pages,
-            username_filter=username_filter
+            username_filter=username_filter,
+            ip_filter=ip_filter
         )
     else:
         flash('获取日志失败', 'error')
-        return render_template('logs.html', logs=[], page=1, per_page=50, total_count=0, total_pages=0, username_filter='')
+        return render_template('logs.html', logs=[], page=1, per_page=50, total_count=0, total_pages=0,
+                               username_filter='', ip_filter='')
 
 
 @admin_bp.route('/admin/announcements')
@@ -280,7 +284,12 @@ def ip_analysis():
     
     # 获取时间线数据
     timeline_success, timeline_data = DatabaseManager.get_ip_access_timeline(hours)
-    
+
+    # 获取转换来源 IP 统计（区分用户/游客）
+    convert_success, convert_ip_stats = DatabaseManager.get_conversion_ip_stats(hours)
+    if not convert_success:
+        convert_ip_stats = {'guest_ips': [], 'user_ips': [], 'guest_total': 0, 'user_total': 0}
+
     if success:
         return render_template(
             'ip_analysis.html',
@@ -288,11 +297,15 @@ def ip_analysis():
             top_ips=data['top_ips'],
             blocked_ips=data['blocked_ips'],
             timeline_data=timeline_data if timeline_success else [],
+            convert_ip_stats=convert_ip_stats,
             hours=hours
         )
     else:
         flash('获取IP统计数据失败', 'error')
-        return render_template('ip_analysis.html', stats=None, top_ips=[], blocked_ips=[], timeline_data=[], hours=hours)
+        return render_template('ip_analysis.html', stats=None, top_ips=[], blocked_ips=[],
+                               timeline_data=[], convert_ip_stats={'guest_ips': [], 'user_ips': [],
+                                                                  'guest_total': 0, 'user_total': 0},
+                               hours=hours)
 
 
 @admin_bp.route('/admin/block_ip', methods=['POST'])

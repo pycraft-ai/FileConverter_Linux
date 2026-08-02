@@ -24,6 +24,19 @@ document.addEventListener('DOMContentLoaded', function () {
     if (overlay) {
         overlay.addEventListener('click', toggleSidebar);
     }
+    // 移动端主题按钮：循环切换
+    var mobileThemeBtn = document.getElementById('mobileThemeBtn');
+    if (mobileThemeBtn) {
+        mobileThemeBtn.addEventListener('click', function () {
+            var themes = ['light', 'eye-care', 'dark'];
+            var current = document.documentElement.getAttribute('data-theme') || 'light';
+            var idx = themes.indexOf(current);
+            var next = themes[(idx + 1) % themes.length];
+            document.documentElement.setAttribute('data-theme', next);
+            localStorage.setItem('theme', next);
+            updateThemeBtns(next);
+        });
+    }
 });
 
 // ===== 主题切换 =====

@@ -42,7 +42,19 @@ class Config:
 
     # 连接池配置
     DB_POOL_SIZE = int(os.environ.get('DB_POOL_SIZE', 10))
-    FILE_CLEANUP_TTL = 7 * 24 * 3600  # 文件清理TTL（秒），改为7天以支持历史记录下载
+    FILE_CLEANUP_TTL = 1 * 24 * 3600  # 文件清理TTL（秒），改为7天以支持历史记录下载
+
+    # ---- 游客模式 ----
+    # 未登录游客可免费体验的转换次数（默认 1 次），用完提示登录解锁更多权益
+    GUEST_MAX_TIMES = int(os.environ.get('GUEST_MAX_TIMES', 1))
+
+    # ---- 游客防滥用（IP 维度限流）----
+    # 注意：游客次数存在 session cookie，可通过无痕浏览/清 cookie 绕过。
+    # 以下基于真实 IP 的限流，无论用户如何刷新/换浏览器都无法绕过。
+    # 同一 IP 每小时最多可进行的游客转换次数
+    GUEST_IP_HOURLY_LIMIT = int(os.environ.get('GUEST_IP_HOURLY_LIMIT', 5))
+    # 同一 IP 每天最多可进行的游客转换次数（使用 24 小时滑动窗口近似"每天"）
+    GUEST_IP_DAILY_LIMIT = int(os.environ.get('GUEST_IP_DAILY_LIMIT', 10))
 
     # 验证码配置
     VERIFY_CODE_RESEND_INTERVAL = int(os.environ.get('VERIFY_CODE_RESEND_INTERVAL', 60))

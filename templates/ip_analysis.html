@@ -131,6 +131,146 @@
 </div>
 {% endif %}
 
+<!-- ===== 转换来源分析：用户 / 游客 分层 ===== -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="glass-card">
+            <div class="d-flex align-items-center justify-content-between flex-wrap mb-3">
+                <h5 class="mb-0"><i class="fas fa-arrows-alt-h me-2"></i>转换来源分析</h5>
+                <div class="d-flex gap-2 mt-2 mt-md-0">
+                    <span class="badge py-2 px-3" style="background: rgba(102,126,234,.2); color:#667eea;">
+                        <i class="fas fa-user me-1"></i>登录用户转换 <strong>{{ convert_ip_stats.user_total }}</strong> 次
+                    </span>
+                    <span class="badge py-2 px-3" style="background: rgba(245,158,11,.2); color:#f59e0b;">
+                        <i class="fas fa-user-secret me-1"></i>游客转换 <strong>{{ convert_ip_stats.guest_total }}</strong> 次
+                    </span>
+                </div>
+            </div>
+
+            <!-- Tab 切换 -->
+            <ul class="nav nav-tabs mb-3" id="convertSourceTab" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active" id="user-tab" data-bs-toggle="tab" data-bs-target="#user-convert" type="button" role="tab">
+                        <i class="fas fa-user me-1"></i>登录用户转换
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="guest-tab" data-bs-toggle="tab" data-bs-target="#guest-convert" type="button" role="tab">
+                        <i class="fas fa-user-secret me-1"></i>游客转换
+                        {% if convert_ip_stats.guest_total > 0 %}
+                        <span class="badge bg-warning text-dark ms-1">{{ convert_ip_stats.guest_ips|length }}</span>
+                        {% endif %}
+                    </button>
+                </li>
+            </ul>
+
+            <div class="tab-content" id="convertSourceTabContent">
+                <!-- 登录用户转换 IP -->
+                <div class="tab-pane fade show active" id="user-convert" role="tabpanel">
+                    <div class="table-responsive">
+                        <table class="table table-hover table-dark align-middle">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>IP地址</th>
+                                    <th>转换次数</th>
+                                    <th>成功数</th>
+                                    <th>成功/失败</th>
+                                    <th>最后转换</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for ip in convert_ip_stats.user_ips %}
+                                <tr>
+                                    <td>{{ loop.index }}</td>
+                                    <td><code>{{ ip.ip_address }}</code></td>
+                                    <td><span class="badge bg-primary">{{ ip.convert_count }}</span></td>
+                                    <td><span class="badge bg-success">{{ ip.success_count }}</span></td>
+                                    <td>
+                                        {% set fail = ip.convert_count - ip.success_count %}
+                                        {% if fail > 0 %}
+                                        <span class="badge bg-danger">{{ fail }}</span>
+                                        {% else %}
+                                        <span class="badge bg-secondary">0</span>
+                                        {% endif %}
+                                    </td>
+                                    <td><small>{{ ip.last_convert }}</small></td>
+                                    <td>
+                                        <button class="btn btn-sm btn-danger" onclick="showBlockModal('{{ ip.ip_address }}')">
+                                            <i class="fas fa-ban"></i> 封禁
+                                        </button>
+                                        <a class="btn btn-sm btn-outline-info" href="{{ url_for('admin.view_logs', ip=ip.ip_address) }}">
+                                            <i class="fas fa-list"></i> 日志
+                                        </a>
+                                    </td>
+                                </tr>
+                                {% else %}
+                                <tr><td colspan="7" class="text-center">暂无登录用户转换记录</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- 游客转换 IP -->
+                <div class="tab-pane fade" id="guest-convert" role="tabpanel">
+                    <div class="table-responsive">
+                        <table class="table table-hover table-dark align-middle">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>IP地址</th>
+                                    <th>转换次数</th>
+                                    <th>成功数</th>
+                                    <th>失败数</th>
+                                    <th>最后转换</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for ip in convert_ip_stats.guest_ips %}
+                                <tr>
+                                    <td>{{ loop.index }}</td>
+                                    <td><code>{{ ip.ip_address }}</code></td>
+                                    <td><span class="badge" style="background:#f59e0b;">{{ ip.convert_count }}</span></td>
+                                    <td><span class="badge bg-success">{{ ip.success_count }}</span></td>
+                                    <td>
+                                        {% set fail = ip.convert_count - ip.success_count %}
+                                        {% if fail > 0 %}
+                                        <span class="badge bg-danger">{{ fail }}</span>
+                                        {% else %}
+                                        <span class="badge bg-secondary">0</span>
+                                        {% endif %}
+                                    </td>
+                                    <td><small>{{ ip.last_convert }}</small></td>
+                                    <td>
+                                        <button class="btn btn-sm btn-danger" onclick="showBlockModal('{{ ip.ip_address }}')">
+                                            <i class="fas fa-ban"></i> 封禁
+                                        </button>
+                                        <a class="btn btn-sm btn-outline-info" href="{{ url_for('admin.view_logs', ip=ip.ip_address) }}">
+                                            <i class="fas fa-list"></i> 日志
+                                        </a>
+                                    </td>
+                                </tr>
+                                {% else %}
+                                <tr><td colspan="7" class="text-center">暂无游客转换记录</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="mt-2 p-3 rounded" style="background:rgba(245,158,11,.08); border:1px solid rgba(245,158,11,.2);">
+                        <small style="color:#f59e0b;">
+                            <i class="fas fa-info-circle me-1"></i>
+                            游客转换次数基于真实 IP 统计。若同一 IP 游客转换次数明显偏高，可能存在通过无痕浏览/清 cookie 绕过体验次数限制的行为，建议封禁该 IP。
+                        </small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="row">
     <!-- IP访问排行 -->
     <div class="col-lg-7 mb-4">

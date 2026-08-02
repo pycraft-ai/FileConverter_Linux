@@ -33,6 +33,7 @@
         --sidebar-width: 260px;
         --sidebar-bg: #ffffff;
         --sidebar-border: #e5e7eb;
+        --topbar-height: 52px;
     }
     [data-theme="dark"] { --sidebar-bg: #1a1a2e; --sidebar-border: rgba(200,200,220,.12); }
     [data-theme="eye-care"] { --sidebar-bg: #fdf6e3; --sidebar-border: rgba(91,70,54,.12); }
@@ -40,6 +41,70 @@
     .app-layout {
         display: flex;
         min-height: 100vh;
+        padding-top: var(--topbar-height);
+    }
+
+    /* ===== 顶部导航栏 ===== */
+    .top-navbar {
+        position: fixed;
+        top: 0; left: 0; right: 0;
+        height: var(--topbar-height);
+        background: var(--sidebar-bg);
+        border-bottom: 1px solid var(--sidebar-border);
+        z-index: 102;
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 0 24px;
+    }
+    .top-navbar .nb-brand {
+        display: flex; align-items: center; gap: 10px;
+    }
+    .top-navbar .nb-brand-icon {
+        width: 32px; height: 32px;
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        border-radius: 8px;
+        display: flex; align-items: center; justify-content: center;
+        color: #fff; font-size: 14px;
+    }
+    .top-navbar .nb-brand-text {
+        font-weight: 700; font-size: 15px;
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+    }
+    .top-navbar .nb-right {
+        display: flex; align-items: center; gap: 10px;
+    }
+    .top-navbar .theme-group {
+        display: flex; gap: 2px;
+        background: var(--bg-item);
+        border-radius: 8px;
+        padding: 3px;
+    }
+    .top-navbar .theme-btn {
+        border: none; background: none;
+        width: 30px; height: 30px; border-radius: 6px;
+        display: flex; align-items: center; justify-content: center;
+        cursor: pointer; color: var(--text-muted);
+        font-size: 13px; transition: all .15s;
+    }
+    .top-navbar .theme-btn:hover { color: #667eea; }
+    [data-theme="light"] .top-navbar .theme-btn[data-theme="light"],
+    [data-theme="dark"] .top-navbar .theme-btn[data-theme="dark"],
+    [data-theme="eye-care"] .top-navbar .theme-btn[data-theme="eye-care"],
+    .top-navbar .theme-btn.active {
+        background: #667eea; color: #fff;
+    }
+    .top-navbar .nav-logout {
+        display: flex; align-items: center; gap: 5px;
+        padding: 6px 12px;
+        border-radius: 6px;
+        color: var(--text-muted); font-size: 13px;
+        text-decoration: none; cursor: pointer;
+        transition: all .15s;
+    }
+    .top-navbar .nav-logout:hover {
+        background: rgba(239,68,68,.08); color: #ef4444;
     }
 
     /* 侧边栏 */
@@ -50,106 +115,21 @@
         display: flex;
         flex-direction: column;
         position: fixed;
-        top: 0; left: 0; bottom: 0;
+        top: var(--topbar-height); left: 0; bottom: 0;
         z-index: 100;
-        box-shadow: 0 1px 3px rgba(0,0,0,.06);
         transition: transform .25s ease;
-    }
-
-    .sidebar-brand {
-        padding: 22px 20px;
-        border-bottom: 1px solid var(--sidebar-border);
-        display: flex; align-items: center; gap: 10px;
-    }
-    .sidebar-brand .brand-icon {
-        width: 36px; height: 36px;
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        border-radius: 10px;
-        display: flex; align-items: center; justify-content: center;
-        color: #fff; font-size: 17px; flex-shrink: 0;
-    }
-    .sidebar-brand .brand-text {
-        font-weight: 700; font-size: 16px;
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
-    }
-
-    /* 用户卡片 */
-    .sidebar-user {
-        padding: 16px 20px;
-        border-bottom: 1px solid var(--sidebar-border);
-        display: flex; align-items: center; gap: 12px;
-    }
-    .sidebar-user .avatar-circle {
-        width: 40px; height: 40px;
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        border-radius: 50%;
-        display: flex; align-items: center; justify-content: center;
-        color: #fff; font-size: 16px; flex-shrink: 0;
-    }
-    .sidebar-user .user-detail { flex: 1; min-width: 0; }
-    .sidebar-user .user-name { font-weight: 600; font-size: 14px; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .sidebar-user .user-role { font-size: 12px; color: var(--text-muted); }
-
-    /* 次数统计 */
-    .sidebar-stat {
-        margin: 12px 16px;
-        padding: 12px 14px;
-        background: linear-gradient(135deg, rgba(102,126,234,.08), rgba(118,75,162,.08));
-        border-radius: 12px;
-        display: flex; align-items: center; gap: 10px;
-    }
-    .sidebar-stat .stat-icon {
-        width: 34px; height: 34px;
-        background: #667eea;
-        border-radius: 10px;
-        display: flex; align-items: center; justify-content: center;
-        color: #fff; font-size: 14px;
-    }
-    .sidebar-stat .stat-num {
-        font-size: 22px; font-weight: 700; color: #667eea; line-height: 1;
-    }
-    .sidebar-stat .stat-label {
-        font-size: 11px; color: var(--text-muted);
-    }
-
-    /* 主题切换 */
-    .sidebar-theme {
-        display: flex; gap: 4px;
-        padding: 8px 16px;
-        background: var(--bg-item);
-        margin: 8px 16px;
-        border-radius: 10px;
-    }
-    .sidebar-theme .theme-btn {
-        flex: 1;
-        border: none; background: none;
-        width: 32px; height: 32px; border-radius: 8px;
-        display: flex; align-items: center; justify-content: center;
-        cursor: pointer; color: var(--text-muted);
-        font-size: 14px; transition: all .15s;
-    }
-    .sidebar-theme .theme-btn:hover { color: #667eea; }
-    [data-theme="light"] .theme-btn[data-theme="light"],
-    [data-theme="dark"] .theme-btn[data-theme="dark"],
-    [data-theme="eye-care"] .theme-btn[data-theme="eye-care"],
-    .sidebar-theme .theme-btn.active {
-        background: #667eea; color: #fff;
-        box-shadow: 0 2px 6px rgba(102,126,234,.25);
     }
 
     /* 导航 */
     .sidebar-nav {
-        flex: 1; padding: 4px 12px;
+        flex: 1; padding: 8px 12px 4px;
         display: flex; flex-direction: column; gap: 2px;
         overflow-y: auto;
     }
     .sidebar-nav .nav-section {
         font-size: 10px; font-weight: 700;
         text-transform: uppercase; letter-spacing: .8px;
-        color: var(--text-muted); padding: 14px 8px 6px;
+        color: var(--text-muted); padding: 10px 8px 6px;
     }
     .sidebar-nav .nav-item {
         display: flex; align-items: center; gap: 10px;
@@ -175,21 +155,6 @@
         padding: 0 5px;
     }
 
-    /* 底部退出 */
-    .sidebar-footer {
-        padding: 12px 16px;
-        border-top: 1px solid var(--sidebar-border);
-    }
-    .sidebar-footer .logout-link {
-        display: flex; align-items: center; gap: 8px;
-        padding: 10px 12px; border-radius: 8px;
-        color: var(--text-muted); font-size: 13px; text-decoration: none;
-        transition: all .15s;
-    }
-    .sidebar-footer .logout-link:hover {
-        background: rgba(239,68,68,.08); color: #ef4444;
-    }
-
     /* 主内容区 */
     .main-content {
         flex: 1;
@@ -197,6 +162,51 @@
         padding: 24px 32px;
         min-height: 100vh;
     }
+
+    /* ===== 侧边栏底部用户信息卡片 ===== */
+    .sidebar-footer-card {
+        padding: 12px 16px;
+        border-top: 1px solid var(--sidebar-border);
+        display: flex; align-items: center; gap: 10px;
+    }
+    .sidebar-footer-card .sf-avatar {
+        width: 36px; height: 36px;
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        border-radius: 50%;
+        display: flex; align-items: center; justify-content: center;
+        color: #fff; font-size: 15px; flex-shrink: 0;
+    }
+    .sidebar-footer-card .sf-user-info {
+        flex: 1; min-width: 0;
+        display: flex; flex-direction: column; gap: 1px;
+    }
+    .sidebar-footer-card .sf-user-name {
+        font-weight: 600; font-size: 13px; color: var(--text-primary);
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .sidebar-footer-card .sf-user-role {
+        font-size: 11px; color: var(--text-muted);
+    }
+    .sidebar-footer-card .sf-stat {
+        display: flex; align-items: center; gap: 6px;
+        flex-shrink: 0;
+    }
+    .sidebar-footer-card .sf-stat-icon {
+        width: 28px; height: 28px;
+        background: rgba(102,126,234,.12);
+        border-radius: 6px;
+        display: flex; align-items: center; justify-content: center;
+        color: #667eea; font-size: 12px;
+    }
+    .sidebar-footer-card .sf-stat-num {
+        font-size: 16px; font-weight: 700; color: #667eea; line-height: 1;
+    }
+    .sidebar-footer-card .sf-stat-label {
+        font-size: 10px; color: var(--text-muted);
+    }
+    /* 次数不足警告 */
+    #blStat.warn .sf-stat-icon { background: #ef4444; }
+    #blStat.warn .sf-stat-num { color: #ef4444; }
 
     /* 移动端顶部迷你导航条（默认隐藏） */
     .mobile-topbar {
@@ -221,6 +231,11 @@
     .mobile-topbar .mobile-logout {
         color: var(--text-muted); font-size: 18px; padding: 4px 8px;
     }
+    .mobile-topbar .mobile-theme-btn {
+        background: none; border: none;
+        color: var(--text-muted); font-size: 16px;
+        padding: 4px 8px; cursor: pointer;
+    }
 
     .sidebar-overlay {
         display: none;
@@ -230,7 +245,10 @@
 
     /* 响应式 */
     @media (max-width: 768px) {
+        .top-navbar { display: none; }
+        .app-layout { padding-top: 0; }
         .app-sidebar {
+            top: 0;
             transform: translateX(-100%);
         }
         .app-sidebar.open {
@@ -243,45 +261,70 @@
         .mobile-topbar { display: flex; }
         .sidebar-overlay.show { display: block; }
     }
+
+    /* ===== 游客模式 ===== */
+    .guest-navbar {
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        border-bottom: none;
+    }
+    .guest-navbar .nb-brand-text { color: #fff; -webkit-text-fill-color: #fff; }
+    .guest-navbar .guest-tip {
+        color: rgba(255,255,255,.92); font-size: 13px;
+        display: flex; align-items: center; gap: 6px;
+    }
+    .guest-navbar .guest-tip strong {
+        background: rgba(255,255,255,.25); color: #fff;
+        padding: 1px 8px; border-radius: 999px; font-size: 12px;
+    }
+    .guest-navbar .nav-logout {
+        color: #fff !important;
+        background: rgba(255,255,255,.18);
+    }
+    .guest-navbar .nav-logout:hover {
+        background: rgba(255,255,255,.3); color: #fff !important;
+    }
+    .guest-login-bar {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 12px; flex-wrap: wrap;
+        background: linear-gradient(135deg, #fef3c7, #fde68a);
+        border: 1px solid #f59e0b; border-radius: 12px;
+        padding: 12px 18px; margin-bottom: 20px;
+        box-shadow: 0 2px 8px rgba(245,158,11,.12);
+    }
+    .guest-login-bar .glb-content {
+        display: flex; align-items: center; gap: 8px;
+        font-size: 13px; color: #78350f; flex: 1; min-width: 220px;
+    }
+    .guest-login-bar .glb-content i { color: #f59e0b; font-size: 16px; }
+    .guest-login-bar .glb-actions { display: flex; gap: 8px; }
+    .guest-login-bar .glb-btn {
+        padding: 7px 16px; border-radius: 8px;
+        font-size: 13px; font-weight: 600; text-decoration: none;
+        transition: all .15s;
+    }
+    .guest-login-bar .glb-login { background: #667eea; color: #fff; }
+    .guest-login-bar .glb-login:hover { background: #5a6fd6; color: #fff; }
+    .guest-login-bar .glb-register { background: #fff; color: #f59e0b; border: 1px solid #f59e0b; }
+    .guest-login-bar .glb-register:hover { background: #fffbeb; color: #d97706; }
+    /* 游客模式下的主内容区样式 */
+    .guest-navbar ~ .app-layout .main-content { padding-top: 24px; }
 </style>
 
     {% block head_extra %}{% endblock %}
 </head>
 <body>
+    {% if session.get('username') or (session.get('is_guest') and request.blueprint != 'auth') %}
+    <!-- ==================== 顶部导航栏 ==================== -->
     {% if session.get('username') %}
-    <!-- ==================== 侧边栏布局 ==================== -->
-    <div class="app-layout">
-        <!-- 侧边栏 -->
-        <aside class="app-sidebar" id="appSidebar">
-            <!-- 品牌 -->
-            <div class="sidebar-brand">
-                <div class="brand-icon"><i class="fas fa-file-alt"></i></div>
-                <span class="brand-text">文件转化工具</span>
-            </div>
-
-            <!-- 用户信息 -->
-            <div class="sidebar-user">
-                <div class="avatar-circle"><i class="fas fa-user"></i></div>
-                <div class="user-detail">
-                    <div class="user-name">{{ session['username'] }}</div>
-                    <div class="user-role">
-                        {% if session.get('is_admin') %}<i class="fas fa-crown"></i> 管理员
-                        {% else %}<i class="fas fa-user-circle"></i> 普通用户{% endif %}
-                    </div>
-                </div>
-            </div>
-
-            <!-- 次数/到期统计 -->
-            <div class="sidebar-stat" id="sidebarStat">
-                <div class="stat-icon"><i class="fas fa-hashtag"></i></div>
-                <div>
-                    <div class="stat-num" id="sidebarRemaining">{% if session.get('login_type') == 'times' %}{{ session.get('remaining_times', '--') }}{% else %}剩余{{ session.get('expiration_date', '--') | time_remaining }}{% endif %}</div>
-                    <div class="stat-label">{% if session.get('login_type') == 'times' %}次剩余{% else %}{{ session.get('expiration_date', '--') }} 到期{% endif %}</div>
-                </div>
-            </div>
-
-            <!-- 主题切换 -->
-            <div class="sidebar-theme">
+    <nav class="top-navbar">
+        <div class="nb-brand">
+            <a href="{{ url_for('converter.index') }}" style="display:flex;align-items:center;gap:10px;text-decoration:none;">
+                <div class="nb-brand-icon"><i class="fas fa-file-alt"></i></div>
+                <span class="nb-brand-text">文件转化工具</span>
+            </a>
+        </div>
+        <div class="nb-right">
+            <div class="theme-group">
                 <button class="theme-btn" data-theme="light" title="日间模式">
                     <i class="fas fa-sun"></i>
                 </button>
@@ -292,7 +335,37 @@
                     <i class="fas fa-moon"></i>
                 </button>
             </div>
+            <a class="nav-logout" href="{{ url_for('auth.logout') }}">
+                <i class="fas fa-sign-out-alt"></i> 退出登录
+            </a>
+        </div>
+    </nav>
+    {% else %}
+    <!-- 游客顶部导航栏 -->
+    <nav class="top-navbar guest-navbar">
+        <div class="nb-brand">
+            <div class="nb-brand-icon"><i class="fas fa-user-secret"></i></div>
+            <span class="nb-brand-text">文件转化工具 · 游客体验</span>
+        </div>
+        <div class="nb-right">
+            <span class="guest-tip">
+                <i class="fas fa-gift"></i>
+                游客可体验
+                <strong>{{ guest_remaining if guest_remaining is not none else 1 }}</strong>
+                次转换
+            </span>
+            <a class="nav-logout" href="{{ url_for('auth.login') }}">
+                <i class="fas fa-sign-in-alt"></i> 登录
+            </a>
+        </div>
+    </nav>
+    {% endif %}
 
+    <!-- ==================== 主体布局 ==================== -->
+    <div class="app-layout">
+        {% if session.get('username') %}
+        <!-- 侧边栏 -->
+        <aside class="app-sidebar" id="appSidebar">
             <!-- 导航菜单 -->
             <nav class="sidebar-nav">
                 <div class="nav-section">主菜单</div>
@@ -322,11 +395,23 @@
                 {% endif %}
             </nav>
 
-            <!-- 底部退出 -->
-            <div class="sidebar-footer">
-                <a class="logout-link" href="{{ url_for('auth.logout') }}">
-                    <i class="fas fa-sign-out-alt"></i> 退出登录
-                </a>
+            <!-- 底部用户信息 + 剩余次数 -->
+            <div class="sidebar-footer-card">
+                <div class="sf-avatar"><i class="fas fa-user"></i></div>
+                <div class="sf-user-info">
+                    <div class="sf-user-name">{{ session['username'] }}</div>
+                    <div class="sf-user-role">
+                        {% if session.get('is_admin') %}<i class="fas fa-crown"></i> 管理员
+                        {% else %}<i class="fas fa-user-circle"></i> 普通用户{% endif %}
+                    </div>
+                </div>
+                <div class="sf-stat" id="blStat">
+                    <div class="sf-stat-icon"><i class="fas fa-hashtag"></i></div>
+                    <div>
+                        <div class="sf-stat-num" id="sidebarRemaining">{% if session.get('login_type') == 'times' %}{{ session.get('remaining_times', '--') }}{% else %}剩余{{ session.get('expiration_date', '--') | time_remaining }}{% endif %}</div>
+                        <div class="sf-stat-label">{% if session.get('login_type') == 'times' %}次剩余{% else %}{{ session.get('expiration_date', '--') }} 到期{% endif %}</div>
+                    </div>
+                </div>
             </div>
         </aside>
 
@@ -336,6 +421,9 @@
                 <i class="fas fa-bars"></i>
             </button>
             <span class="mobile-brand">文件转化工具</span>
+            <button class="mobile-theme-btn" id="mobileThemeBtn" title="切换主题">
+                <i class="fas fa-palette"></i>
+            </button>
             <a class="mobile-logout" href="{{ url_for('auth.logout') }}">
                 <i class="fas fa-sign-out-alt"></i>
             </a>
@@ -343,9 +431,24 @@
 
         <!-- 移动端侧边栏遮罩 -->
         <div class="sidebar-overlay" id="sidebarOverlay"></div>
+        {% endif %}
 
         <!-- ==================== 主内容区 ==================== -->
-        <main class="main-content" id="mainContent">
+        <main class="main-content" id="mainContent" {% if session.get('is_guest') %}style="margin-left:0;"{% endif %}>
+            {% if session.get('is_guest') %}
+            <!-- 游客登录引导条 -->
+            <div class="guest-login-bar" id="guestLoginBar">
+                <div class="glb-content">
+                    <i class="fas fa-crown"></i>
+                    <span>当前为游客模式，可免费体验 1 次转换。注册登录后可无限次使用全部功能！</span>
+                </div>
+                <div class="glb-actions">
+                    <a class="glb-btn glb-login" href="{{ url_for('auth.login') }}"><i class="fas fa-sign-in-alt"></i> 登录</a>
+                    <a class="glb-btn glb-register" href="{{ url_for('auth.register') }}"><i class="fas fa-user-plus"></i> 立即注册</a>
+                </div>
+            </div>
+            {% endif %}
+
             <!-- Flash 消息 -->
             <div id="flashArea">
                 {% with messages = get_flashed_messages(with_categories=true) %}

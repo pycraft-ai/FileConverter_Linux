@@ -11,11 +11,28 @@ $(function () {
     // 从 meta 标签读取服务端变量
     var _loginType = (document.querySelector('meta[name="login-type"]') || {}).getAttribute('content') || '';
     var _convertUrl = (document.getElementById('convertForm') || {}).getAttribute('data-convert-url') || '';
+    var _isGuest = (document.querySelector('meta[name="is-guest"]') || {}).getAttribute('content') === 'true';
+    var _guestRemaining = parseInt((document.querySelector('meta[name="guest-remaining"]') || {}).getAttribute('content')) || 0;
 
-    // ===== 更新侧边栏剩余次数 =====
+    // ===== 更新游客剩余次数提示 =====
+    function updateGuestStat(remaining) {
+        remaining = Math.max(parseInt(remaining) || 0, 0);
+        _guestRemaining = remaining;
+        $('#guestRemainNum').text(remaining);
+        var $bar = $('#guestRemainBar');
+        if ($bar.length) {
+            $bar.toggleClass('warn', remaining <= 0);
+        }
+    }
+
+    // ===== 更新左下角剩余次数 =====
     function updateSidebarStat(remaining) {
+        if (_isGuest) {
+            updateGuestStat(remaining);
+            return;
+        }
         var $num = $('#sidebarRemaining');
-        var $stat = $('#sidebarStat');
+        var $stat = $('#blStat');
         if ($num.length) {
             $num.text(remaining);
             if (remaining <= 5) {
@@ -33,10 +50,14 @@ $(function () {
 
     // 初始化检查
     (function () {
+        if (_isGuest) {
+            updateGuestStat(_guestRemaining);
+            return;
+        }
         var $num = $('#sidebarRemaining');
         if ($num.length) {
             var initial = parseInt($num.text()) || 0;
-            if (initial <= 5 && initial >= 0) $('#sidebarStat').addClass('warn');
+            if (initial <= 5 && initial >= 0) $('#blStat').addClass('warn');
             if (initial <= 0) $('#convertBtn').prop('disabled', true);
         }
     })();
@@ -491,6 +512,12 @@ $(function () {
                     $('#passwordModal').fadeIn(150);
                     return;
                 }
+                if (response.need_login) {
+                    $btn.prop('disabled', false);
+                    $res.removeClass('show');
+                    showLoginPrompt(response.message || '游客已用完体验次数，请登录解锁更多权益');
+                    return;
+                }
                 handleConvertResponse(response, $fill, $msg, $dl);
             },
             error: function () {
@@ -564,6 +591,11 @@ $(function () {
         $('#extractedFilesArea').hide();
         var mode = $('input[name="mode"]:checked').val();
         if (!mode) { showToast('请先选择转换模式'); return; }
+        // 游客已用完体验次数：点击直接引导登录
+        if (_isGuest && _guestRemaining <= 0) {
+            showLoginPrompt('游客体验次数已用完，登录即可解锁更多权益');
+            return;
+        }
 
         var inputType = $('input[name="mode"]:checked').data('input-type');
         var formData = new FormData();
@@ -616,6 +648,40 @@ $(function () {
         window._lastFormData = formData;
         doConvert(formData);
     });
+
+    // ===== 游客登录引导弹窗 =====
+    function showLoginPrompt(msg) {
+        if ($('#loginPromptModal').length) {
+            $('#loginPromptModal').remove();
+        }
+        var $modal = $(
+            '<div class="modal-overlay" id="loginPromptModal">' +
+            '<div class="modal-box">' +
+            '<div class="modal-header">' +
+            '<i class="fas fa-crown" style="color:#f59e0b;font-size:20px;"></i>' +
+            '<span>登录解锁更多权益</span>' +
+            '</div>' +
+            '<div class="modal-body">' +
+            '<p style="margin-bottom:10px;"><i class="fas fa-exclamation-circle" style="color:#f59e0b;margin-right:6px;"></i>' + escapeHtml(msg || '游客已用完体验次数') + '</p>' +
+            '<ul style="padding-left:20px;font-size:13px;line-height:2;color:var(--text-secondary);">' +
+            '<li>无限次使用全部 28 种转换功能</li>' +
+            '<li>查看转换记录与数据分析仪表盘</li>' +
+            '<li>在线联系作者，享受更多服务</li>' +
+            '</ul>' +
+            '</div>' +
+            '<div class="modal-footer">' +
+            '<div class="modal-btns">' +
+            '<button class="modal-btn cancel" id="loginPromptCancel">继续浏览</button>' +
+            '<a class="modal-btn confirm" style="text-decoration:none;color:#fff;" href="/login">去登录</a>' +
+            '</div>' +
+            '</div>' +
+            '</div></div>'
+        );
+        $('body').append($modal);
+        $modal.fadeIn(150);
+        $('#loginPromptCancel').on('click', function () { $modal.fadeOut(150, function () { $modal.remove(); }); });
+        $(document).on('click', '#loginPromptModal', function (e) { if (e.target === this) { $modal.fadeOut(150, function () { $modal.remove(); }); } });
+    }
 
     // ===== 重复文件确认弹窗 =====
     window.showDuplicateModal = function (msg) {
