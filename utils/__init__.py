@@ -83,10 +83,19 @@ def check_rate_limit(key: str, max_requests: int, window_seconds: int):
 def get_client_ip():
     """
     安全获取客户端真实 IP。
-    只有当请求来自可信代理时才读取代理头（CF-Connecting-IP / X-Forwarded-For），
-    否则使用 request.remote_addr。
+    优先使用可信代理头（CF-Connecting-IP / X-Forwarded-For）还原真实用户 IP，
+    否则回退到 request.remote_addr。
+    信任规则：
+      1. 来自 TRUSTED_PROXY_IPS 白名单的请求（如本机回环）；
+      2. 开启 TRUST_CF_CONNECTING_IP 时（cloudflared 与 Flask 同机部署），
+         无论来源如何都优先信任 CF-Connecting-IP 头。
     """
     from config import Config
+
+    if Config.TRUST_CF_CONNECTING_IP:
+        cf_ip = request.headers.get('CF-Connecting-IP')
+        if cf_ip:
+            return cf_ip
 
     if request.remote_addr in Config.TRUSTED_PROXY_IPS:
         cf_ip = request.headers.get('CF-Connecting-IP')

@@ -54,6 +54,16 @@
                                    max="100"
                                    style="background: rgba(255,255,255,0.8); border: 1px solid rgba(0,0,0,0.15); color: #333;">
                         </div>
+                        <div class="col-md-2">
+                            <label class="form-label">自动消失(秒)</label>
+                            <input type="number" 
+                                   class="form-control" 
+                                   id="announceAutoHide" 
+                                   value="0"
+                                   min="0"
+                                   style="background: rgba(255,255,255,0.8); border: 1px solid rgba(0,0,0,0.15); color: #333;">
+                            <small class="text-muted">0=常驻，需手动关闭</small>
+                        </div>
                     </div>
                     <div class="mt-3">
                         <label class="form-label">公告内容</label>
@@ -88,16 +98,17 @@
                                 <th>标题</th>
                                 <th>类型</th>
                                 <th>优先级</th>
+                                <th>自动消失</th>
                                 <th>状态</th>
                                 <th>发布者</th>
                                 <th>创建时间</th>
-                                <th style="width: 180px;">操作</th>
+                                <th style="width: 220px;">操作</th>
                             </tr>
                         </thead>
                         <tbody>
                             {% for ann in announcements %}
                             <tr>
-                                <td><strong>{{ ann['id'] }}</strong></td>
+                                <td><strong>{{ loop.index }}</strong></td>
                                 <td>
                                     <div class="text-truncate" style="max-width: 300px;" title="{{ ann['title'] }}">
                                         {{ ann['title'] }}
@@ -128,12 +139,23 @@
                                     </span>
                                 </td>
                                 <td>
+                                    {% if ann.get('auto_hide_seconds', 0) and ann['auto_hide_seconds'] > 0 %}
+                                    <span class="badge bg-info">
+                                        <i class="fas fa-clock me-1"></i>{{ ann['auto_hide_seconds'] }}秒
+                                    </span>
+                                    {% else %}
+                                    <span class="badge bg-secondary">
+                                        <i class="fas fa-ban me-1"></i>常驻
+                                    </span>
+                                    {% endif %}
+                                </td>
+                                <td>
                                     {% if ann['is_active'] %}
                                     <span class="badge bg-success">
                                         <i class="fas fa-check me-1"></i>激活
                                     </span>
                                     {% else %}
-                                    <span class="badge bg-secondary">
+                                    <span class="badge bg-danger">
                                         <i class="fas fa-pause me-1"></i>停用
                                     </span>
                                     {% endif %}
@@ -145,7 +167,17 @@
                                     <small class="text-muted">{{ ann['created_at'][:16] }}</small>
                                 </td>
                                 <td>
-                                    <button class="btn btn-sm btn-outline-light toggle-btn" 
+                                    <button class="btn btn-sm btn-outline-info edit-btn"
+                                            data-id="{{ ann['id'] }}"
+                                            data-title="{{ ann['title'] }}"
+                                            data-content="{{ ann['content'] }}"
+                                            data-type="{{ ann['type'] }}"
+                                            data-priority="{{ ann['priority'] }}"
+                                            data-autohide="{{ ann.get('auto_hide_seconds', 0) or 0 }}"
+                                            title="编辑">
+                                        <i class="fas fa-edit"></i>
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-success toggle-btn" 
                                             data-id="{{ ann['id'] }}"
                                             title="{{ '停用' if ann['is_active'] else '激活' }}">
                                         <i class="fas fa-{{ 'pause' if ann['is_active'] else 'play' }}"></i>
@@ -180,12 +212,69 @@
         </div>
     </div>
 </div>
+
+<!-- 编辑公告弹窗 -->
+<div class="modal fade" id="editAnnounceModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content" style="background: var(--bg-card); color: var(--text-primary); border: var(--border-color);">
+            <div class="modal-header" style="border-bottom: var(--border-color);">
+                <h5 class="modal-title">
+                    <i class="fas fa-edit me-2" style="color:#0ea5e9;"></i>编辑公告
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" style="filter: invert(.4);"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="editAnnounceId">
+                <div class="mb-3">
+                    <label class="form-label">公告标题</label>
+                    <input type="text" class="form-control" id="editAnnounceTitle"
+                           style="background: rgba(255,255,255,0.8); border: 1px solid rgba(0,0,0,0.15); color:#333;">
+                </div>
+                <div class="row g-3 mb-3">
+                    <div class="col-md-4">
+                        <label class="form-label">类型</label>
+                        <select class="form-select" id="editAnnounceType"
+                                style="background: rgba(255,255,255,0.8); border: 1px solid rgba(0,0,0,0.15); color:#333;">
+                            <option value="info">信息</option>
+                            <option value="warning">警告</option>
+                            <option value="success">成功</option>
+                            <option value="announcement">公告</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">优先级</label>
+                        <input type="number" class="form-control" id="editAnnouncePriority" value="0" min="0" max="100"
+                               style="background: rgba(255,255,255,0.8); border: 1px solid rgba(0,0,0,0.15); color:#333;">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">自动消失(秒)</label>
+                        <input type="number" class="form-control" id="editAnnounceAutoHide" value="0" min="0"
+                               style="background: rgba(255,255,255,0.8); border: 1px solid rgba(0,0,0,0.15); color:#333;">
+                        <small class="text-muted">0=常驻</small>
+                    </div>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">公告内容</label>
+                    <textarea class="form-control" id="editAnnounceContent" rows="3"
+                              style="background: rgba(255,255,255,0.8); border: 1px solid rgba(0,0,0,0.15); color:#333;"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer" style="border-top: var(--border-color);">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-gradient" id="editAnnounceSave">
+                    <i class="fas fa-save me-1"></i>保存修改
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
 <div id="announceManage"
      data-announce-create-url="{{ url_for('admin.create_announcement') }}"
      data-announce-toggle-url="{{ url_for('admin.toggle_announcement') }}"
-     data-announce-delete-url="{{ url_for('admin.delete_announcement') }}"></div>
+     data-announce-delete-url="{{ url_for('admin.delete_announcement') }}"
+     data-announce-edit-url="{{ url_for('admin.edit_announcement') }}"></div>
 <script src="{{ url_for('static', filename='js/announcements.js') }}"></script>
 {% endblock %}

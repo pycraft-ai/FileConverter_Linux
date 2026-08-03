@@ -90,6 +90,11 @@ class Config:
     TRUSTED_PROXY_IPS = [
         ip.strip() for ip in os.environ.get('TRUSTED_PROXY_IPS', '127.0.0.1,::1').split(',')
     ]
+    # 是否信任 Cloudflare Tunnel 的 CF-Connecting-IP 头（真实用户 IP）。
+    # cloudflared 与 Flask 同机部署时建议开启（默认开启），
+    # 此时无论 remote_addr 是什么都优先使用 CF-Connecting-IP。
+    # 注意：仅当 Flask 只通过 Cloudflare Tunnel 对外暴露（外部无法绕过 Cloudflare 直连）时开启才安全。
+    TRUST_CF_CONNECTING_IP = os.environ.get('TRUST_CF_CONNECTING_IP', '1') == '1'
 
     # ===== 邮箱 SMTP 配置（用于注册验证码） =====
     MAIL_HOST = os.environ.get('MAIL_HOST')

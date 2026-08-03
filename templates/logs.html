@@ -71,7 +71,7 @@
                         <tbody>
                             {% for log in logs %}
                             <tr>
-                                <td><strong>{{ log['id'] }}</strong></td>
+                                <td><strong>{{ (page - 1) * per_page + loop.index }}</strong></td>
                                 <td>
                                     {% if log['username'] == 'guest' %}
                                     <span class="badge" style="background: rgba(245, 158, 11, 0.2); color: #f59e0b;" title="未登录游客">

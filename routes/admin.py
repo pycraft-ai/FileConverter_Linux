@@ -224,6 +224,13 @@ def create_announcement():
         priority = int(request.form.get('priority', 0))
     except ValueError:
         priority = 0
+
+    try:
+        auto_hide_seconds = int(request.form.get('auto_hide_seconds', 0))
+        if auto_hide_seconds < 0:
+            auto_hide_seconds = 0
+    except ValueError:
+        auto_hide_seconds = 0
     
     if not title or not content:
         return jsonify({'success': False, 'message': '标题和内容不能为空'})
@@ -233,6 +240,7 @@ def create_announcement():
         content=content,
         announce_type=announce_type,
         priority=priority,
+        auto_hide_seconds=auto_hide_seconds,
         created_by=session['username']
     )
     
@@ -266,6 +274,45 @@ def delete_announcement():
         return jsonify({'success': False, 'message': '无效的公告ID'})
     
     success, msg = DatabaseManager.delete_announcement(announce_id)
+    return jsonify({'success': success, 'message': msg})
+
+
+@admin_bp.route('/admin/announcement/edit', methods=['POST'])
+def edit_announcement():
+    """编辑公告（含自动消失时间）"""
+    if 'username' not in session or not session.get('is_admin'):
+        return jsonify({'success': False, 'message': '权限不足'})
+
+    try:
+        announce_id = int(request.form.get('id', 0))
+    except ValueError:
+        return jsonify({'success': False, 'message': '无效的公告ID'})
+
+    title = request.form.get('title', '').strip()
+    content = request.form.get('content', '').strip()
+    announce_type = request.form.get('type', 'info')
+
+    try:
+        priority = int(request.form.get('priority', 0))
+    except ValueError:
+        priority = 0
+
+    try:
+        auto_hide_seconds = int(request.form.get('auto_hide_seconds', 0))
+        if auto_hide_seconds < 0:
+            auto_hide_seconds = 0
+    except ValueError:
+        auto_hide_seconds = 0
+
+    if not title or not content:
+        return jsonify({'success': False, 'message': '标题和内容不能为空'})
+
+    success, msg = DatabaseManager.update_announcement(
+        announce_id, title, content, announce_type, priority, auto_hide_seconds
+    )
+    if success:
+        logger.info("管理员操作: 编辑公告 | admin=%s id=%s auto_hide=%ss",
+                    session['username'], announce_id, auto_hide_seconds)
     return jsonify({'success': success, 'message': msg})
 
 

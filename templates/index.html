@@ -381,7 +381,7 @@
     <!-- 公告 -->
     {% if announcements %}
     {% for ann in announcements %}
-    <div class="announce-bar">
+    <div class="announce-bar" data-auto-hide="{{ ann.get('auto_hide_seconds', 0) or 0 }}">
         <i class="fas fa-bullhorn"></i>
         <span><strong>{{ ann['title'] }}</strong> — {{ ann['content'] }}</span>
         <button class="close-ann"><i class="fas fa-times"></i></button>
@@ -544,6 +544,21 @@
                         <option value="tiff">TIFF (印刷)</option>
                     </select>
                     <span id="imageFormatHint" style="font-size:11px;color:var(--text-muted);margin-left:4px;"></span>
+                </div>
+            </div>
+
+            <!-- OCR 输出格式选择 -->
+            <div id="ocrFormatArea" style="display:none; margin-top:14px;">
+                <div class="param-row">
+                    <span class="param-label"><i class="fas fa-file-export"></i> 输出格式</span>
+                    <select id="ocrFormatSelect" style="width:auto;">
+                        <option value="txt">TXT (纯文本)</option>
+                        <option value="md">Markdown (.md)</option>
+                        <option value="docx">Word 文档 (.docx)</option>
+                    </select>
+                    <span id="ocrFormatHint" style="font-size:11px;color:var(--text-muted);margin-left:4px;">
+                        <i class="fas fa-info-circle"></i> 选择识别文本的输出格式
+                    </span>
                 </div>
             </div>
 

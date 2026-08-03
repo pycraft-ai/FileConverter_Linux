@@ -78,6 +78,17 @@ $(function () {
         this.parentElement.remove();
     });
 
+    // ===== 公告自动消失（管理员可配置时长，秒）=====
+    $('.announce-bar[data-auto-hide]').each(function () {
+        var $bar = $(this);
+        var seconds = parseInt($bar.data('auto-hide'), 10) || 0;
+        if (seconds > 0) {
+            setTimeout(function () {
+                $bar.fadeOut(300, function () { $(this).remove(); });
+            }, seconds * 1000);
+        }
+    });
+
     // ===== 检查模式 =====
     function checkModeSelected() {
         if ($('input[name="mode"]:checked').length === 0) {
@@ -173,6 +184,13 @@ $(function () {
             $('#imageFormatHint').text('将图片转换为指定格式');
         } else if ($('#imageFormatArea').is(':visible')) {
             $('#imageFormatArea').hide();
+        }
+
+        // OCR 输出格式
+        if (mode === 'PDF OCR识别' || mode === '图片OCR识别') {
+            $('#ocrFormatArea').show();
+        } else if ($('#ocrFormatArea').is(':visible')) {
+            $('#ocrFormatArea').hide();
         }
 
         // PDF 压缩
@@ -623,6 +641,9 @@ $(function () {
         }
         if (mode === '图片格式互转') {
             formData.append('target_format', $('#imageFormatSelect').val());
+        }
+        if (mode === 'PDF OCR识别' || mode === '图片OCR识别') {
+            formData.append('output_format', $('#ocrFormatSelect').val());
         }
         if (mode === 'pdf压缩') {
             formData.append('quality', $('#pdfCompressSelect').val());

@@ -20,8 +20,8 @@
 | 📝 文本 / OCR | MD 转 PDF | Markdown → .pdf |
 | | MD 转 HTML | Markdown → .html |
 | | HTML 转 PDF | .html/.htm → .pdf |
-| | PDF OCR 识别 | 提取 PDF 中文字 → .txt |
-| | 图片 OCR 识别 | 图片文字识别 → .txt |
+| | PDF OCR 识别 | 提取 PDF 中文字 → .txt / .md / .docx（可选） |
+| | 图片 OCR 识别 | 图片文字识别 → .txt / .md / .docx（可选） |
 | | 文字转语音 | .txt → .mp3（基于 edge-tts） |
 | 🖼️ 图片 / 媒体 | 图片转 PDF | 多张图片合并为 .pdf |
 | | PDF 转图片 | PDF 每页转 .jpg（打包 zip） |
@@ -85,6 +85,7 @@
 - HTML 危险内容扫描（`<script>`、`<iframe>`、`javascript:`、`eval()` 等）
 - 路径穿越防护（文件下载路径安全验证）
 - X-Forwarded-For 信任代理白名单
+- **Cloudflare Tunnel 支持**（`TRUST_CF_CONNECTING_IP` 还原真实用户 IP）
 - **游客防滥用**（真实 IP 维度限流：每小时 `GUEST_IP_HOURLY_LIMIT` 次 + 每日 `GUEST_IP_DAILY_LIMIT` 次）
 - **转换日志 IP 溯源**（所有转换记录真实来源 IP，含游客）
 
@@ -190,6 +191,7 @@ chmod +x start.sh
 | `VERIFY_CODE_IP_LIMIT` | 验证码 IP 限流次数 | `5` |
 | `VERIFY_CODE_IP_WINDOW` | 验证码 IP 限流窗口 (秒) | `3600` |
 | `TRUSTED_PROXY_IPS` | 代理信任白名单（逗号分隔） | `127.0.0.1,::1` |
+| `TRUST_CF_CONNECTING_IP` | 信任 Cloudflare Tunnel 的 `CF-Connecting-IP` 头（还原真实用户 IP），cloudflared 同机部署时建议开启 | `1` |
 
 ## LibreOffice 转换说明
 
@@ -281,7 +283,7 @@ chmod +x start.sh
 3. **MySQL 连接** — 推荐 `localhost`（socket 连接，比 TCP 更快）
 4. **生产环境** — 关闭调试模式：`export FLASK_DEBUG=0`
 5. **后台运行** — `nohup ./start.sh > output.log 2>&1 &`
-6. **代理环境** — 如使用 Nginx / Cloudflare，配置 `TRUSTED_PROXY_IPS` 以获取真实 IP
+6. **代理环境** — 如使用 Nginx / Cloudflare，配置 `TRUSTED_PROXY_IPS` 以获取真实 IP；**Cloudflare Tunnel 部署**（cloudflared 与 Flask 同机）时，保持 `TRUST_CF_CONNECTING_IP=1`，否则会记录到 Cloudflare 出口 IP（可能为 IPv6）而非用户真实 IP
 7. **LibreOffice 互斥锁** — 所有 Office 相关转换使用线程锁串行执行，避免 LibreOffice 实例冲突
 8. **OCR 超时控制** — 使用 `ThreadPoolExecutor` + `future.result(timeout)` 实现跨平台线程安全超时，避免卡死
 9. **游客防滥用** — 游客次数存于 cookie，可用无痕浏览/清 cookie 绕过；管理员可在 **IP 分析 → 转换来源分析** 中按真实 IP 监控游客转换行为，异常高频 IP 建议封禁

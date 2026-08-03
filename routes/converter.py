@@ -367,6 +367,14 @@ def convert():
 
     task_id = uuid.uuid4().hex
     input_type = MODE_INPUT_TYPE.get(mode, 'file')
+
+    # OCR 模式：支持选择输出格式（txt / md / docx）
+    output_format = 'txt'
+    if mode in ('PDF OCR识别', '图片OCR识别'):
+        output_format = request.form.get('output_format', 'txt').lower()
+        if output_format not in ('txt', 'md', 'docx'):
+            output_format = 'txt'
+
     logger.info("开始转换 | user=%s mode=%s task_id=%s", _uname, mode, task_id)
 
     try:
@@ -879,12 +887,17 @@ def convert():
 
         elif input_type == 'directory':
             dir_name = os.path.basename(input_paths[0]) if input_paths else task_id
+            # OCR 模式输出扩展名跟随所选格式
+            if mode in ('PDF OCR识别', '图片OCR识别'):
+                out_ext = f'.{output_format}'
+            else:
+                out_ext = MODE_OUTPUT_EXT.get(mode, '.pdf')
             output_path = os.path.join(
                 Config.OUTPUT_FOLDER,
-                f'{task_id}_{dir_name}{MODE_OUTPUT_EXT.get(mode, ".pdf")}'
+                f'{task_id}_{dir_name}{out_ext}'
             )
             result = getattr(Function, MODE_TO_FUNCTION[mode])(
-                input_paths[0], output_path
+                input_paths[0], output_path, output_format
             )
         else:
             func_name = MODE_TO_FUNCTION.get(mode)
@@ -897,11 +910,18 @@ def convert():
             for i, input_path in enumerate(input_paths):
                 orig_name = original_filenames[i] if i < len(original_filenames) else os.path.basename(input_path)
                 base_name, _ = os.path.splitext(orig_name)
-                out_ext = MODE_OUTPUT_EXT.get(mode, '')
+                # OCR 模式输出扩展名跟随所选格式
+                if mode in ('PDF OCR识别', '图片OCR识别'):
+                    out_ext = f'.{output_format}'
+                else:
+                    out_ext = MODE_OUTPUT_EXT.get(mode, '')
                 output_path = os.path.join(Config.OUTPUT_FOLDER, f'{task_id}_{base_name}{out_ext}')
 
                 try:
-                    single_result = getattr(Function, func_name)(input_path, output_path)
+                    if mode in ('PDF OCR识别', '图片OCR识别'):
+                        single_result = getattr(Function, func_name)(input_path, output_path, output_format)
+                    else:
+                        single_result = getattr(Function, func_name)(input_path, output_path)
                     if single_result and os.path.exists(output_path):
                         output_paths.append(output_path)
                     else:

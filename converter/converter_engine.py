@@ -579,6 +579,106 @@ ul, ol {{ padding-left: 2em; }}
             return False
 
     @staticmethod
+    def _clean_ocr_text(raw_text):
+        """整理 OCR 原始文本，改善排版。
+        策略（保守）：
+        - 不强行合并段内行，保留段落多行结构
+        - 清理行内/行末孤立噪声符号（□ | _ 等）
+        - 规整行内空白（去除首尾空格、压缩重复空格）
+        - 智能识别段间空行（结束标点、编号列表、标题开头）
+        - 修复常见 OCR 错误字母（l↔I, 0↔O 等）
+        """
+        if not raw_text:
+            return ""
+
+        import re
+
+        # 行内孤立噪声符号（OCR 误识别的方块、几何符号）
+        inline_noise = re.compile(r'[□■▢▣◇◈●○►▸◄◅]')
+        # 行尾孤立的标点/符号（OCR 切碎导致的尾巴，如行尾孤立 | _ - ）
+        # 注意：保留中英文句号、逗号等正常标点
+        trailing_noise = re.compile(r'[\s]*[|｜_—\-—·`~]+[\s]*$')
+
+        # 结束标点（中英文）：行尾出现即视为该段结束
+        end_punct_re = re.compile(r'[。！？；：”’"…）】》!?;:\.,]\s*$')
+        # 段间分隔：行首为字母/数字+圆点/右括号（编号列表）
+        list_item_re = re.compile(r'^\s*[A-Z]\s*[\)\.\:]', re.I)  # A) A. a)
+        # 中文编号
+        cn_list_re = re.compile(r'^\s*[\u4e00-\u9fff]{1,3}[、\.]')
+        # 数字编号
+        num_list_re = re.compile(r'^\s*\d{1,2}[\.\)、]\s*\S')
+        # 常见大写英文标题（Section/Part/Directions/Answer/How to 等）
+        title_re = re.compile(
+            r'^\s*(Section\s+[A-Z]|Directions|Part\s+[IVX]|Answer\s+Sheet|'
+            r'How\s+to\s+[A-Z]|Why\s+[A-Z]|What\s+[A-Z]|When\s+[A-Z]|'
+            r'阅读理解|完形填空|翻译|写作|试题|答案与解析)',
+            re.I)
+
+        # 常见 OCR 错字替换（成对正则，逐项修复）
+        ocr_fix = [
+            (re.compile(r'\b0\b'), 'O'),           # 单词级单独 0 → O（保守，仅在两边空白时）
+            (re.compile(r'\bl\b'), 'I'),           # 单词级单独 l → I
+        ]
+        # 注意：上面的 0/l 修复可能误伤数字，因此只在两侧是空格/标点时使用（已限定 \b）
+
+        cleaned_lines = []
+        for raw_line in raw_text.split('\n'):
+            line = raw_line.rstrip()
+            # 1) 压缩行内多余空格和制表符
+            line = re.sub(r'[ \t]+', ' ', line)
+            # 2) 去除行内孤立噪声符号
+            line = inline_noise.sub('', line)
+            # 3) 去除行尾孤立噪声（| _ - . 等）
+            line = trailing_noise.sub('', line).rstrip()
+            # 4) 修复常见 OCR 错误字母
+            for pat, repl in ocr_fix:
+                line = pat.sub(repl, line)
+            cleaned_lines.append(line)
+
+        # 智能段落化：基于"段间信号"插入空行
+        paragraphs = []
+        cur_para = []
+        for line in cleaned_lines:
+            stripped = line.strip()
+
+            # 空行 → 段落边界
+            if not stripped:
+                if cur_para:
+                    paragraphs.append(cur_para)
+                    cur_para = []
+                continue
+
+            # 段落内第一行或检测到段间信号 → 新段落
+            if not cur_para:
+                cur_para = [line]
+                continue
+
+            # 段间信号：
+            # 1) 当前行以编号/标题开头（强信号）
+            cur_starts_new = bool(
+                list_item_re.match(line) or cn_list_re.match(line)
+                or num_list_re.match(line) or title_re.match(line)
+            )
+            # 2) 上一行末尾是结束标点 + 短行 + 下一行以大写/数字开头（弱信号，避免误判缩写）
+            prev_line = cur_para[-1].strip()
+            prev_ends_para = bool(end_punct_re.search(prev_line))
+            weak_para_signal = (
+                prev_ends_para and len(prev_line) <= 80 and bool(re.match(r'^[A-Z\u4e00-\u9fff\d]', line.strip()))
+            )
+
+            if cur_starts_new or weak_para_signal:
+                paragraphs.append(cur_para)
+                cur_para = [line]
+            else:
+                cur_para.append(line)
+
+        if cur_para:
+            paragraphs.append(cur_para)
+
+        # 拼装：每个段内保留原换行（段内多行不合并）；段落之间用一个空行分隔
+        return '\n\n'.join('\n'.join(p) for p in paragraphs).strip()
+
+    @staticmethod
     def _ocr_pdf_pages(pdfPath):
         """OCR 辅助：将PDF页转图片后识别文字（在独立线程中运行）"""
         pages = convert_from_path(pdfPath, 300)
@@ -590,7 +690,43 @@ ul, ol {{ padding-left: 2em; }}
         return text
 
     @staticmethod
-    def pdf_ocr(pdfPath, outputPath):
+    def _write_ocr_output(text, outputPath, fmt):
+        """按指定格式写入 OCR 识别文本（txt / md / docx）"""
+        fmt = (fmt or 'txt').lower()
+        if fmt == 'docx':
+            from docx import Document
+            doc = Document()
+            for para in (text or '').split('\n'):
+                # 保留空行作为段落
+                p = doc.add_paragraph()
+                if para.strip():
+                    run = p.add_run(para.strip())
+                else:
+                    p.paragraph_format.space_after = doc.styles['Normal'].paragraph_format.space_after
+            doc.save(outputPath)
+            return
+        if fmt == 'md':
+            # 简单转换为 Markdown：空行分隔为段落
+            paragraphs = []
+            buf = []
+            for line in (text or '').split('\n'):
+                if line.strip():
+                    buf.append(line.strip())
+                elif buf:
+                    paragraphs.append(' '.join(buf))
+                    buf = []
+            if buf:
+                paragraphs.append(' '.join(buf))
+            md = '\n\n'.join(paragraphs)
+            with open(outputPath, 'w', encoding='utf-8') as f:
+                f.write(md)
+            return
+        # 默认 txt
+        with open(outputPath, 'w', encoding='utf-8') as f:
+            f.write(text or '')
+
+    @staticmethod
+    def pdf_ocr(pdfPath, outputPath, output_format='txt'):
         """PDF OCR 文字识别（带线程池超时控制，跨平台线程安全）"""
         try:
             text = extract_text(pdfPath)
@@ -600,8 +736,9 @@ ul, ol {{ padding-left: 2em; }}
                     args=(pdfPath,),
                     timeout=OCR_TIMEOUT_SECONDS
                 )
-            with open(outputPath, 'w', encoding='utf-8') as f:
-                f.write(text)
+            # 整理 OCR 排版
+            text = Function._clean_ocr_text(text)
+            Function._write_ocr_output(text, outputPath, output_format)
             return True
         except TimeoutError:
             logger.error("PDF OCR超时")
@@ -618,7 +755,7 @@ ul, ol {{ padding-left: 2em; }}
         )
 
     @staticmethod
-    def image_ocr(imagePath, outputPath):
+    def image_ocr(imagePath, outputPath, output_format='txt'):
         """图片 OCR 文字识别（带线程池超时控制，跨平台线程安全）"""
         try:
             if os.path.isfile(imagePath):
@@ -627,8 +764,8 @@ ul, ol {{ padding-left: 2em; }}
                     args=(imagePath,),
                     timeout=OCR_TIMEOUT_SECONDS
                 )
-                with open(outputPath, 'w', encoding='utf-8') as f:
-                    f.write(text)
+                text = Function._clean_ocr_text(text)
+                Function._write_ocr_output(text, outputPath, output_format)
                 return True
             elif os.path.isdir(imagePath):
                 all_text = ""
@@ -640,10 +777,10 @@ ul, ol {{ padding-left: 2em; }}
                             args=(img_path,),
                             timeout=OCR_TIMEOUT_SECONDS
                         )
+                        text = Function._clean_ocr_text(text)
                         all_text += f"=== {file} ===\n{text}\n\n"
                 if all_text:
-                    with open(outputPath, 'w', encoding='utf-8') as f:
-                        f.write(all_text)
+                    Function._write_ocr_output(all_text, outputPath, output_format)
                     return True
                 return False
             return False

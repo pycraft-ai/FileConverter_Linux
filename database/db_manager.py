@@ -297,6 +297,7 @@ class DatabaseManager:
                             type            VARCHAR(20) DEFAULT 'info',
                             is_active       BOOLEAN DEFAULT TRUE,
                             priority        INT DEFAULT 0,
+                            auto_hide_seconds INT DEFAULT 0,
                             created_by      VARCHAR(50),
                             created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
                             updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -304,6 +305,14 @@ class DatabaseManager:
                             INDEX idx_active_priority (is_active, priority)
                         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                     """)
+                else:
+                    # 对已存在的公告表补充 auto_hide_seconds 列
+                    cursor.execute("SHOW COLUMNS FROM announcements LIKE 'auto_hide_seconds'")
+                    if not cursor.fetchone():
+                        try:
+                            cursor.execute("ALTER TABLE announcements ADD COLUMN auto_hide_seconds INT DEFAULT 0 AFTER priority")
+                        except Error:
+                            pass
 
                 # --- IP访问记录表 ---
                 cursor.execute("SHOW TABLES LIKE 'ip_access_logs'")
@@ -1016,7 +1025,7 @@ class DatabaseManager:
     # ========================
 
     @staticmethod
-    def create_announcement(title, content, announce_type='info', priority=0, created_by='admin'):
+    def create_announcement(title, content, announce_type='info', priority=0, created_by='admin', auto_hide_seconds=0):
         """创建公告"""
         conn = None
         try:
@@ -1025,9 +1034,9 @@ class DatabaseManager:
                 cursor = conn.cursor()
                 cursor.execute(
                     """INSERT INTO announcements
-                    (title, content, type, priority, created_by)
-                    VALUES (%s, %s, %s, %s, %s)""",
-                    (title, content, announce_type, priority, created_by)
+                    (title, content, type, priority, auto_hide_seconds, created_by)
+                    VALUES (%s, %s, %s, %s, %s, %s)""",
+                    (title, content, announce_type, priority, auto_hide_seconds, created_by)
                 )
                 conn.commit()
                 cursor.close()
@@ -1050,7 +1059,7 @@ class DatabaseManager:
             if conn:
                 cursor = conn.cursor(dictionary=True)
                 cursor.execute(
-                    """SELECT id, title, content, type, priority, created_by, created_at
+                    """SELECT id, title, content, type, priority, auto_hide_seconds, created_by, created_at
                     FROM announcements
                     WHERE is_active = TRUE
                     ORDER BY priority DESC, created_at DESC
@@ -1079,7 +1088,7 @@ class DatabaseManager:
             if conn:
                 cursor = conn.cursor(dictionary=True)
                 cursor.execute(
-                    """SELECT id, title, content, type, is_active, priority, created_by, created_at, updated_at
+                    """SELECT id, title, content, type, is_active, priority, auto_hide_seconds, created_by, created_at, updated_at
                     FROM announcements
                     ORDER BY priority DESC, created_at DESC"""
                 )
@@ -1155,6 +1164,35 @@ class DatabaseManager:
             if conn:
                 DatabaseManager.return_connection(conn)
         return False, "删除失败"
+
+    @staticmethod
+    def update_announcement(announce_id, title, content, announce_type='info', priority=0, auto_hide_seconds=0):
+        """更新公告（标题、内容、类型、优先级、自动消失时间）"""
+        conn = None
+        try:
+            conn = DatabaseManager.get_connection()
+            if conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """UPDATE announcements
+                    SET title = %s, content = %s, type = %s, priority = %s, auto_hide_seconds = %s
+                    WHERE id = %s""",
+                    (title, content, announce_type, priority, auto_hide_seconds, announce_id)
+                )
+                conn.commit()
+                affected = cursor.rowcount
+                cursor.close()
+                if affected == 0:
+                    return False, "公告不存在"
+                return True, "公告已更新"
+        except Error as e:
+            if conn:
+                conn.rollback()
+            return False, f"更新失败: {e}"
+        finally:
+            if conn:
+                DatabaseManager.return_connection(conn)
+        return False, "更新失败"
 
     # ========================
     # IP 访问记录和黑名单
