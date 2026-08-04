@@ -6,6 +6,18 @@ $(function () {
     var markReadUrl = managePanel ? managePanel.getAttribute('data-mark-read-url') : '';
     var replyUrl = managePanel ? managePanel.getAttribute('data-reply-url') : '';
 
+    // 安全读取 data-* 属性（属性值由服务端 tojson 编码，需 JSON.parse 还原原始字符串）
+    function readJsonAttr($el, name) {
+        var raw = $el.attr(name);
+        if (!raw) return '';
+        try { return JSON.parse(raw); } catch (e) { return ''; }
+    }
+
+    // 将文本插入为纯文本节点（避免 XSS）
+    function appendText(parent, text) {
+        parent.appendChild(document.createTextNode(text));
+    }
+
     // 查看消息详情
     window.viewMessage = function (id) {
         var $row = $('#row' + id);
@@ -15,38 +27,105 @@ $(function () {
             try { replies = JSON.parse(rawReplies); } catch (e) {}
         }
 
-        var message = $row.attr('data-message') || '';
-        var name = $row.attr('data-name') || '';
-        var email = $row.attr('data-email') || '';
-        var subject = $row.attr('data-subject') || '';
-        var createdAt = $row.attr('data-created-at') || '';
+        var message = readJsonAttr($row, 'data-message');
+        var name = readJsonAttr($row, 'data-name');
+        var email = readJsonAttr($row, 'data-email');
+        var subject = readJsonAttr($row, 'data-subject');
+        var createdAt = readJsonAttr($row, 'data-created-at');
 
-        var html = '';
-        html += '<div class="mb-3"><strong>姓名：</strong>' + name + '</div>';
-        html += '<div class="mb-3"><strong>邮箱：</strong><a href="mailto:' + email + '" class="text-info">' + email + '</a></div>';
-        html += '<div class="mb-3"><strong>主题：</strong><span class="badge bg-info">' + subject + '</span></div>';
-        html += '<div class="mb-3"><strong>时间：</strong>' + createdAt + '</div>';
-        html += '<hr class="border-secondary">';
-        html += '<div class="mb-3"><strong>内容：</strong></div>';
-        html += '<div class="p-3 bg-secondary bg-opacity-25 rounded">' + message.replace(/\n/g, '<br>') + '</div>';
+        var $body = $('#viewMessageBody').empty();
+
+        // 使用 createElement + textContent 构建，绝不使用 .html() 拼接用户内容
+        var field = function (label, value, isEmail) {
+            var div = document.createElement('div');
+            div.className = 'mb-3';
+            var strong = document.createElement('strong');
+            appendText(strong, label);
+            div.appendChild(strong);
+            if (isEmail && value) {
+                var a = document.createElement('a');
+                a.href = 'mailto:' + value;
+                a.className = 'text-info';
+                appendText(a, value);
+                div.appendChild(a);
+            } else {
+                var span = document.createElement('span');
+                appendText(span, value);
+                div.appendChild(span);
+            }
+            $body[0].appendChild(div);
+        };
+
+        field('姓名：', name, false);
+        field('邮箱：', email, true);
+        field('主题：', subject, false);
+        field('时间：', createdAt, false);
+
+        var hr = document.createElement('hr');
+        hr.className = 'border-secondary';
+        $body[0].appendChild(hr);
+
+        var labelDiv = document.createElement('div');
+        labelDiv.className = 'mb-3';
+        var labelStrong = document.createElement('strong');
+        appendText(labelStrong, '内容：');
+        labelDiv.appendChild(labelStrong);
+        $body[0].appendChild(labelDiv);
+
+        var contentDiv = document.createElement('div');
+        contentDiv.className = 'p-3 bg-secondary bg-opacity-25 rounded';
+        // 将换行替换为 <br>，但其余内容按纯文本处理
+        var lines = String(message || '').split('\n');
+        lines.forEach(function (line, idx) {
+            if (idx > 0) contentDiv.appendChild(document.createElement('br'));
+            appendText(contentDiv, line);
+        });
+        $body[0].appendChild(contentDiv);
 
         if (replies && replies.length > 0) {
-            html += '<hr class="border-secondary">';
-            html += '<div class="mb-2"><strong><i class="fas fa-reply-all me-1"></i>回复记录（' + replies.length + ' 条）：</strong></div>';
-            replies.forEach(function (r, i) {
-                var badgeClass = r.author_type === 'admin' ? 'bg-success' : 'bg-primary';
-                var author = r.author_type === 'admin' ? '管理员' : '用户';
-                html += '<div class="mb-2 p-2 rounded" style="background:rgba(255,255,255,0.05);">';
-                html += '<div class="d-flex justify-content-between mb-1">';
-                html += '<span class="badge ' + badgeClass + '">' + author + '</span>';
-                html += '<small class="text-muted">' + (r.created_at || '') + '</small>';
-                html += '</div>';
-                html += '<div>' + (r.content || '').replace(/\n/g, '<br>') + '</div>';
-                html += '</div>';
+            var hr2 = document.createElement('hr');
+            hr2.className = 'border-secondary';
+            $body[0].appendChild(hr2);
+
+            var repLabel = document.createElement('div');
+            repLabel.className = 'mb-2';
+            var repStrong = document.createElement('strong');
+            appendText(repStrong, '回复记录（' + replies.length + ' 条）：');
+            repLabel.appendChild(repStrong);
+            $body[0].appendChild(repLabel);
+
+            replies.forEach(function (r) {
+                var box = document.createElement('div');
+                box.className = 'mb-2 p-2 rounded';
+                box.style.background = 'rgba(255,255,255,0.05)';
+
+                var head = document.createElement('div');
+                head.className = 'd-flex justify-content-between mb-1';
+
+                var badge = document.createElement('span');
+                badge.className = 'badge ' + (r.author_type === 'admin' ? 'bg-success' : 'bg-primary');
+                appendText(badge, r.author_type === 'admin' ? '管理员' : '用户');
+                head.appendChild(badge);
+
+                var small = document.createElement('small');
+                small.className = 'text-muted';
+                appendText(small, r.created_at || '');
+                head.appendChild(small);
+
+                box.appendChild(head);
+
+                var bodyDiv = document.createElement('div');
+                var repLines = String(r.content || '').split('\n');
+                repLines.forEach(function (line, idx) {
+                    if (idx > 0) bodyDiv.appendChild(document.createElement('br'));
+                    appendText(bodyDiv, line);
+                });
+                box.appendChild(bodyDiv);
+
+                $body[0].appendChild(box);
             });
         }
 
-        $('#viewMessageBody').html(html);
         var modal = new bootstrap.Modal(document.getElementById('viewMessageModal'));
         modal.show();
 

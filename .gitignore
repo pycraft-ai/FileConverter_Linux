@@ -36,6 +36,9 @@ Thumbs.db
 output.log
 nohup.out
 logs/
+
+# MySQL 连接信息缓存（可能包含连接元数据，勿公开）
+mysql_connections.db
 # 临时文件
 *.tmp
 *.temp

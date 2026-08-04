@@ -179,8 +179,25 @@ def before_request():
 
 @app.after_request
 def after_request(response):
-    """请求后处理：异步记录访问日志（跳过静态资源）"""
+    """请求后处理：设置安全响应头 + 异步记录访问日志（跳过静态资源）"""
     try:
+        # ===== 安全响应头 =====
+        response.headers['X-Content-Type-Options'] = 'nosniff'
+        response.headers['X-Frame-Options'] = 'DENY'
+        response.headers['Referrer-Policy'] = 'same-origin'
+        # 防 XSS 兜底（内联脚本较多，采用宽松策略：允许自身脚本，禁外部注入）
+        response.headers['Content-Security-Policy'] = (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+            "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+            "img-src 'self' data: https:; "
+            "font-src 'self' https://cdn.jsdelivr.net data:; "
+            "connect-src 'self' https: http:"
+        )
+        response.headers['Permissions-Policy'] = (
+            'camera=(), microphone=(), geolocation=()'
+        )
+        # 记录访问日志前先设置安全头，保证跳过日志时安全头仍生效
         if _should_skip_log(request.path):
             return response
 

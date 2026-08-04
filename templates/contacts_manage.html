@@ -35,11 +35,11 @@
                         <tr class="table-row-hover {% if not msg.is_read %}fw-bold{% endif %}"
                             id="row{{ msg.id }}"
                             data-replies='{{ msg.replies | tojson | forceescape }}'
-                            data-message='{{ msg.message | e }}'
-                            data-name='{{ msg.name }}'
-                            data-email='{{ msg.email }}'
-                            data-subject='{{ msg.subject }}'
-                            data-created-at='{{ msg.created_at }}'>
+                            data-message='{{ msg.message | tojson | forceescape }}'
+                            data-name='{{ msg.name | tojson | forceescape }}'
+                            data-email='{{ msg.email | tojson | forceescape }}'
+                            data-subject='{{ msg.subject | tojson | forceescape }}'
+                            data-created-at='{{ msg.created_at | tojson | forceescape }}'>
                             <td>
                                 {% if msg.is_read %}
                                 <span class="badge bg-secondary">已读</span>

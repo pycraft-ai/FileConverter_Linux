@@ -275,43 +275,104 @@
     <!-- IP访问排行 -->
     <div class="col-lg-7 mb-4">
         <div class="glass-card">
-            <h5 class="mb-3"><i class="fas fa-list-ol me-2"></i>IP访问排行 TOP 50</h5>
-            <div class="table-responsive">
-                <table class="table table-hover table-dark">
-                    <thead>
-                        <tr>
-                            <th>#</th>
-                            <th>IP地址</th>
-                            <th>访问次数</th>
-                            <th>首次访问</th>
-                            <th>最后访问</th>
-                            <th>操作</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for ip in top_ips %}
-                        <tr>
-                            <td>{{ loop.index }}</td>
-                            <td><code>{{ ip.ip_address }}</code></td>
-                            <td>
-                                <span class="badge bg-primary">{{ ip.visit_count }}</span>
-                            </td>
-                            <td>{{ ip.first_visit }}</td>
-                            <td>{{ ip.last_visit }}</td>
-                            <td>
-                                <button class="btn btn-sm btn-danger" 
-                                        onclick="showBlockModal('{{ ip.ip_address }}')">
-                                    <i class="fas fa-ban"></i> 封禁
-                                </button>
-                            </td>
-                        </tr>
-                        {% else %}
-                        <tr>
-                            <td colspan="6" class="text-center">暂无数据</td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+            <div class="d-flex align-items-center justify-content-between flex-wrap mb-3">
+                <h5 class="mb-0"><i class="fas fa-list-ol me-2"></i>IP访问排行 TOP 50</h5>
+                <ul class="nav nav-pills ms-2" id="ipRankTab" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#rank-by-time" type="button" role="tab">
+                            <i class="fas fa-clock me-1"></i>按时间
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#rank-by-count" type="button" role="tab">
+                            <i class="fas fa-sort-amount-down me-1"></i>按次数
+                        </button>
+                    </li>
+                </ul>
+            </div>
+
+            <div class="tab-content" id="ipRankTabContent">
+                <!-- 按最后访问时间排行 -->
+                <div class="tab-pane fade show active" id="rank-by-time" role="tabpanel">
+                    <div class="table-responsive">
+                        <table class="table table-hover table-dark">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>IP地址</th>
+                                    <th>访问次数</th>
+                                    <th>首次访问</th>
+                                    <th>最后访问</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for ip in top_ips_by_time %}
+                                <tr>
+                                    <td>{{ loop.index }}</td>
+                                    <td><code>{{ ip.ip_address }}</code></td>
+                                    <td>
+                                        <span class="badge bg-primary">{{ ip.visit_count }}</span>
+                                    </td>
+                                    <td>{{ ip.first_visit }}</td>
+                                    <td>{{ ip.last_visit }}</td>
+                                    <td>
+                                        <button class="btn btn-sm btn-danger" 
+                                                onclick="showBlockModal('{{ ip.ip_address }}')">
+                                            <i class="fas fa-ban"></i> 封禁
+                                        </button>
+                                    </td>
+                                </tr>
+                                {% else %}
+                                <tr>
+                                    <td colspan="6" class="text-center">暂无数据</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- 按访问次数排行 -->
+                <div class="tab-pane fade" id="rank-by-count" role="tabpanel">
+                    <div class="table-responsive">
+                        <table class="table table-hover table-dark">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>IP地址</th>
+                                    <th>访问次数</th>
+                                    <th>首次访问</th>
+                                    <th>最后访问</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for ip in top_ips_by_count %}
+                                <tr>
+                                    <td>{{ loop.index }}</td>
+                                    <td><code>{{ ip.ip_address }}</code></td>
+                                    <td>
+                                        <span class="badge bg-primary">{{ ip.visit_count }}</span>
+                                    </td>
+                                    <td>{{ ip.first_visit }}</td>
+                                    <td>{{ ip.last_visit }}</td>
+                                    <td>
+                                        <button class="btn btn-sm btn-danger" 
+                                                onclick="showBlockModal('{{ ip.ip_address }}')">
+                                            <i class="fas fa-ban"></i> 封禁
+                                        </button>
+                                    </td>
+                                </tr>
+                                {% else %}
+                                <tr>
+                                    <td colspan="6" class="text-center">暂无数据</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
             </div>
         </div>
     </div>

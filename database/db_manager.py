@@ -1347,6 +1347,7 @@ class DatabaseManager:
                 )
                 stats = cursor.fetchone()
 
+                # 榜单一：按最后访问时间排序（最近活跃的 IP 在前）
                 cursor.execute(
                     """SELECT ip_address, COUNT(*) as visit_count,
                              MAX(access_time) as last_visit,
@@ -1354,13 +1355,27 @@ class DatabaseManager:
                     FROM ip_access_logs
                     WHERE access_time >= DATE_SUB(NOW(), INTERVAL %s HOUR)
                     GROUP BY ip_address
-                    ORDER BY visit_count DESC
+                    ORDER BY last_visit DESC, visit_count DESC
                     LIMIT 50""",
                     (hours,)
                 )
-                top_ips = cursor.fetchall()
+                top_ips_by_time = cursor.fetchall()
 
-                for ip in top_ips:
+                # 榜单二：按访问次数排序（访问最多的 IP 在前）
+                cursor.execute(
+                    """SELECT ip_address, COUNT(*) as visit_count,
+                             MAX(access_time) as last_visit,
+                             MIN(access_time) as first_visit
+                    FROM ip_access_logs
+                    WHERE access_time >= DATE_SUB(NOW(), INTERVAL %s HOUR)
+                    GROUP BY ip_address
+                    ORDER BY visit_count DESC, last_visit DESC
+                    LIMIT 50""",
+                    (hours,)
+                )
+                top_ips_by_count = cursor.fetchall()
+
+                for ip in top_ips_by_time + top_ips_by_count:
                     if ip.get('last_visit'):
                         ip['last_visit'] = str(ip['last_visit'])
                     if ip.get('first_visit'):
@@ -1369,6 +1384,7 @@ class DatabaseManager:
                 cursor.execute(
                     """SELECT ip_address, reason, blocked_by, blocked_at, expires_at, is_active
                     FROM ip_blacklist
+                    WHERE is_active = TRUE
                     ORDER BY blocked_at DESC"""
                 )
                 blocked_ips = cursor.fetchall()
@@ -1383,7 +1399,8 @@ class DatabaseManager:
 
                 return True, {
                     'stats': stats,
-                    'top_ips': top_ips,
+                    'top_ips_by_time': top_ips_by_time,
+                    'top_ips_by_count': top_ips_by_count,
                     'blocked_ips': blocked_ips
                 }
         except Error as e:
@@ -1496,34 +1513,100 @@ class DatabaseManager:
         return False, {}
 
     @staticmethod
+    def _locate_with_ipwhois(ip_address, requests, timeout):
+        """ipwho.is：对 IPv4 / IPv6 都有较好支持"""
+        resp = requests.get(f'https://ipwho.is/{ip_address}', timeout=timeout)
+        if resp.status_code != 200:
+            return None
+        data = resp.json()
+        if not data.get('success', True) or data.get('error'):
+            return None
+        lat = data.get('latitude')
+        lon = data.get('longitude')
+        if lat is None or lon is None:
+            return None
+        return {
+            'country': data.get('country', '未知'),
+            'city': data.get('city', '未知'),
+            'latitude': float(lat),
+            'longitude': float(lon)
+        }
+
+    @staticmethod
+    def _locate_with_ipapi(ip_address, requests, timeout):
+        """ipapi.co：主接口，仅较好支持 IPv4"""
+        resp = requests.get(f'https://ipapi.co/{ip_address}/json/', timeout=timeout)
+        if resp.status_code != 200:
+            return None
+        data = resp.json()
+        if data.get('error'):
+            return None
+        return {
+            'country': data.get('country_name', '未知'),
+            'city': data.get('city', '未知'),
+            'latitude': float(data.get('latitude', 0)),
+            'longitude': float(data.get('longitude', 0))
+        }
+
+    @staticmethod
+    def _locate_with_ip_api(ip_address, requests, timeout):
+        """ip-api.com（需 HTTP，免费版不支持 HTTPS）：对 IPv4/IPv6 均支持"""
+        try:
+            resp = requests.get(
+                f'http://ip-api.com/json/{ip_address}',
+                timeout=timeout,
+                params={'lang': 'zh-CN', 'fields': 'status,country,city,lat,lon,message'}
+            )
+            if resp.status_code != 200:
+                return None
+            data = resp.json()
+            if data.get('status') != 'success':
+                return None
+            return {
+                'country': data.get('country', '未知'),
+                'city': data.get('city', '未知'),
+                'latitude': float(data.get('lat', 0)),
+                'longitude': float(data.get('lon', 0))
+            }
+        except Exception:
+            return None
+
+    @staticmethod
     def get_ip_location(ip_address):
-        """获取IP地理位置"""
+        """获取IP地理位置（多源备选，兼容 IPv4 / IPv6）"""
         try:
             import requests
             try:
                 ip_obj = ipaddress.ip_address(ip_address)
-                if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local:
-                    return {
-                        'country': '内网',
-                        'city': '本地网络',
-                        'latitude': float(os.getenv('DEFAULT_LATITUDE', 39.9042)),
-                        'longitude': float(os.getenv('DEFAULT_LONGITUDE', 116.4074))
-                    }
+                is_local = ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local
             except ValueError:
-                pass
+                # 无法解析，直接走在线查询（通常不会）
+                is_local = False
 
-            response = requests.get(f'https://ipapi.co/{ip_address}/json/', timeout=Config.IP_LOCATION_API_TIMEOUT)
-            if response.status_code == 200:
-                data = response.json()
-                if data.get('error'):
-                    return None
-
+            if is_local:
                 return {
-                    'country': data.get('country_name', '未知'),
-                    'city': data.get('city', '未知'),
-                    'latitude': float(data.get('latitude', 0)),
-                    'longitude': float(data.get('longitude', 0))
+                    'country': '内网',
+                    'city': '本地网络',
+                    'latitude': float(os.getenv('DEFAULT_LATITUDE', 39.9042)),
+                    'longitude': float(os.getenv('DEFAULT_LONGITUDE', 116.4074))
                 }
+
+            timeout = Config.IP_LOCATION_API_TIMEOUT
+
+            # 依次尝试多个定位源；IPv6 优先 ipwho.is / ip-api.com，因为它们支持 IPv6
+            providers = [
+                DatabaseManager._locate_with_ipwhois,
+                DatabaseManager._locate_with_ipapi,
+                DatabaseManager._locate_with_ip_api,
+            ]
+            for provider in providers:
+                try:
+                    location = provider(ip_address, requests, timeout)
+                    if location:
+                        return location
+                except Exception:
+                    continue
+
             return None
         except Exception as e:
             logger.error("获取IP位置失败 %s: %s", ip_address, e)

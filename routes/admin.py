@@ -341,7 +341,8 @@ def ip_analysis():
         return render_template(
             'ip_analysis.html',
             stats=data['stats'],
-            top_ips=data['top_ips'],
+            top_ips_by_time=data['top_ips_by_time'],
+            top_ips_by_count=data['top_ips_by_count'],
             blocked_ips=data['blocked_ips'],
             timeline_data=timeline_data if timeline_success else [],
             convert_ip_stats=convert_ip_stats,
@@ -349,7 +350,8 @@ def ip_analysis():
         )
     else:
         flash('获取IP统计数据失败', 'error')
-        return render_template('ip_analysis.html', stats=None, top_ips=[], blocked_ips=[],
+        return render_template('ip_analysis.html', stats=None,
+                               top_ips_by_time=[], top_ips_by_count=[], blocked_ips=[],
                                timeline_data=[], convert_ip_stats={'guest_ips': [], 'user_ips': [],
                                                                   'guest_total': 0, 'user_total': 0},
                                hours=hours)
@@ -553,6 +555,8 @@ def mark_contact_read():
 @admin_bp.route('/admin/unread_count')
 def unread_count():
     """获取未读消息数量（用于导航栏徽章）"""
+    if 'username' not in session or not session.get('is_admin'):
+        return jsonify({'count': 0}), 403
     count = DatabaseManager.get_unread_contact_count()
     return jsonify({'count': count})
 
@@ -568,6 +572,8 @@ def reply_contact():
     
     if not msg_id or not reply_text:
         return jsonify({'success': False, 'message': '缺少必要参数'})
+    if len(reply_text) > 1000:
+        return jsonify({'success': False, 'message': '回复内容不能超过 1000 个字符'})
     
     success, msg = DatabaseManager.add_contact_reply(msg_id, reply_text, 'admin')
     if success:

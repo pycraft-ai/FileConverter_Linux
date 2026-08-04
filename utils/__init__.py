@@ -80,6 +80,22 @@ def check_rate_limit(key: str, max_requests: int, window_seconds: int):
 # 安全 IP 获取
 # ==============================
 
+def _is_loopback_or_private(ip_str):
+    """
+    判断给定 IP 字符串是否为回环/内网/链路本地地址（IPv4/IPv6 通用）。
+    用于过滤 cloudflared 通过回环地址转发时误拿到的 ::1 / 127.0.0.1 等。
+    """
+    if not ip_str:
+        return True
+    ip_str = ip_str.strip()
+    try:
+        import ipaddress
+        obj = ipaddress.ip_address(ip_str)
+        return obj.is_loopback or obj.is_private or obj.is_link_local or obj.is_multicast or obj.is_unspecified
+    except ValueError:
+        return True  # 解析失败视为无效地址
+
+
 def get_client_ip():
     """
     安全获取客户端真实 IP。
@@ -89,24 +105,49 @@ def get_client_ip():
       1. 来自 TRUSTED_PROXY_IPS 白名单的请求（如本机回环）；
       2. 开启 TRUST_CF_CONNECTING_IP 时（cloudflared 与 Flask 同机部署），
          无论来源如何都优先信任 CF-Connecting-IP 头。
+
+    增强：当 CF-Connecting-IP / X-Forwarded-For 返回的是回环/内网地址时
+    （说明 cloudflared 未正确透传真实 IP，回退到了 ::1 / 127.0.0.1），
+    会继续尝试下一个可信来源，而不是把回环地址当作真实用户 IP。
     """
     from config import Config
 
-    if Config.TRUST_CF_CONNECTING_IP:
-        cf_ip = request.headers.get('CF-Connecting-IP')
-        if cf_ip:
-            return cf_ip
+    candidates = []
+    # 1. Cloudflare 透传的真实用户 IP 头
+    cf_ip = request.headers.get('CF-Connecting-IP')
+    if cf_ip:
+        candidates.append(('cf', cf_ip.strip()))
+    # 2. X-Forwarded-For（取最左侧原始客户端 IP）
+    xff = request.headers.getlist('X-Forwarded-For')
+    if xff:
+        first = xff[0].split(',')[0].strip()
+        if first:
+            candidates.append(('xff', first))
+    # 3. Cloudflare 附加的真实客户端端口（辅助，仅用于判断是否有 CF 头）
+    has_cf_header = bool(request.headers.get('CF-IPCountry'))
 
-    if request.remote_addr in Config.TRUSTED_PROXY_IPS:
-        cf_ip = request.headers.get('CF-Connecting-IP')
-        if cf_ip:
-            return cf_ip
-        xff = request.headers.getlist('X-Forwarded-For')
-        if xff:
-            # 取最左侧（原始客户端）IP
-            return xff[0].split(',')[0].strip()
+    trust_cf = bool(Config.TRUST_CF_CONNECTING_IP)
+    trust_remote = bool(request.remote_addr and request.remote_addr in Config.TRUSTED_PROXY_IPS)
 
-    return request.remote_addr
+    # 无条件信任 CF 头（cloudflared 与 Flask 同机部署且仅通过隧道暴露）
+    if trust_cf:
+        for _, ip in candidates:
+            if not _is_loopback_or_private(ip):
+                return ip
+        # 兜底：如果 CF 头存在但取到的是回环/内网地址，说明透传有问题
+        # 此时仍返回 CF 头的原始值，交由上层定位逻辑判断；同时若只有回环地址则回退 remote_addr
+        if candidates:
+            return candidates[0][1]
+
+    # 只有来自可信代理的请求才信任代理头
+    if trust_remote or has_cf_header:
+        for _, ip in candidates:
+            if not _is_loopback_or_private(ip):
+                return ip
+        if candidates:
+            return candidates[0][1]
+
+    return request.remote_addr or '0.0.0.0'
 
 
 # ==============================

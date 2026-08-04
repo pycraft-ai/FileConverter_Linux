@@ -1113,11 +1113,24 @@ def contact():
     username = session['username']
 
     if request.method == 'POST':
+        # 频率限制：同一 IP 60 秒内最多提交 3 条留言，防止刷屏
+        allowed, _remaining = check_rate_limit(
+            'contact:' + (get_client_ip() or 'unknown'),
+            max_requests=3,
+            window_seconds=60
+        )
+        if not allowed:
+            return jsonify({'success': False, 'message': '提交过于频繁，请稍后再试'})
+
         subject = request.form.get('subject', '').strip()
         message = request.form.get('message', '').strip()
 
         if not subject or not message:
             return jsonify({'success': False, 'message': '请填写主题和内容'})
+        if len(subject) > 100:
+            return jsonify({'success': False, 'message': '主题不能超过 100 个字符'})
+        if len(message) > 2000:
+            return jsonify({'success': False, 'message': '内容不能超过 2000 个字符'})
 
         success, msg = DatabaseManager.submit_contact_message(
             subject=subject,
@@ -1150,8 +1163,19 @@ def contact_reply():
     msg_id = request.form.get('id', type=int)
     reply_text = request.form.get('reply', '').strip()
 
+    # 频率限制：同一 IP 30 秒内最多回复 5 次
+    allowed, _remaining = check_rate_limit(
+        'contact_reply:' + (get_client_ip() or 'unknown'),
+        max_requests=5,
+        window_seconds=30
+    )
+    if not allowed:
+        return jsonify({'success': False, 'message': '操作过于频繁，请稍后再试'})
+
     if not msg_id or not reply_text:
         return jsonify({'success': False, 'message': '缺少必要参数'})
+    if len(reply_text) > 1000:
+        return jsonify({'success': False, 'message': '回复内容不能超过 1000 个字符'})
 
     # 验证该消息属于当前用户
     conn = DatabaseManager.get_connection()
