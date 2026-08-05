@@ -36,13 +36,16 @@ Thumbs.db
 output.log
 nohup.out
 logs/
+flask_output.log
 
-# MySQL 连接信息缓存（可能包含连接元数据，勿公开）
-mysql_connections.db
+# 本地测试/调试脚本（勿部署）
+test_all_modes.py
+
+# 数据库
+*.db
 # 临时文件
 *.tmp
 *.temp
 
-GITHUB_RISK_REVIEW.md
-
-test_all_modes.py
+# 配置文件
+*.ini

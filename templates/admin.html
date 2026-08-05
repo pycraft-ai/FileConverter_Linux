@@ -6,7 +6,7 @@
 {% endblock %}
 
 {% block content %}
-<style>
+<style nonce="{{ g.get('csp_nonce', '') }}">
     .stat-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; margin-bottom: 24px; }
     .stat-card {
         background: var(--bg-card); border: var(--border-color);
@@ -384,7 +384,7 @@ null
 {% endif %}
 </script>
 <script src="{{ url_for('static', filename='js/admin.js') }}"></script>
-<script>
+<script nonce="{{ g.get('csp_nonce', '') }}">
 // 图表初始化（需要 Jinja2 数据）
 var _adminChartsInit = false;
 var _adminChartInstances = {};

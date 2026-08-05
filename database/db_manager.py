@@ -65,12 +65,14 @@ class DatabaseManager:
                 except FileNotFoundError:
                     pass
                 try:
-                    env = os.environ.copy()
-                    env['MYSQL_PWD'] = Config.DB_CONFIG.get("password", "")
+                    # 使用 --password 命令行参数替代 MYSQL_PWD 环境变量，
+                    # 避免密码在 /proc 文件系统中泄露
                     result = subprocess.run(
-                        ['mysqladmin', 'ping', '-u', Config.DB_CONFIG.get('user', 'root'),
+                        ['mysqladmin', 'ping',
+                         '-u', Config.DB_CONFIG.get('user', 'root'),
+                         f"--password={Config.DB_CONFIG.get('password', '')}",
                          '--silent'],
-                        capture_output=True, timeout=5, text=True, env=env
+                        capture_output=True, timeout=5, text=True
                     )
                     if result.returncode == 0 or 'mysqld is alive' in result.stdout:
                         return True
@@ -568,7 +570,8 @@ class DatabaseManager:
         except Error as e:
             if conn:
                 conn.rollback()
-            return False, f"注册失败: {e}"
+            logger.error("注册失败: %s", e)
+            return False, "注册失败，请稍后重试或联系管理员"
         finally:
             if conn:
                 DatabaseManager.return_connection(conn)
@@ -596,7 +599,8 @@ class DatabaseManager:
                 user = cursor.fetchone()
 
                 if not user:
-                    return False, None, "用户名或邮箱不存在"
+                    # 安全：不区分"用户不存在"和"密码错误"，防止用户名枚举
+                    return False, None, "用户名或密码错误"
 
                 # 验证密码（兼容新旧格式）
                 is_valid, needs_upgrade = DatabaseManager._check_password(
@@ -651,7 +655,8 @@ class DatabaseManager:
                 cursor.close()
                 return True, "密码重置成功"
         except Error as e:
-            return False, f"重置失败: {e}"
+            logger.error("密码重置失败: %s", e)
+            return False, "密码重置失败，请稍后重试或联系管理员"
         finally:
             if conn:
                 DatabaseManager.return_connection(conn)

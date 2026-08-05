@@ -509,3 +509,34 @@ def sanitize_filename(filename: str) -> str:
     """
     from werkzeug.utils import secure_filename
     return secure_filename(filename)
+
+
+# ==============================
+# 管理员权限装饰器
+# ==============================
+
+def admin_required(func):
+    """
+    统一的管理员权限校验装饰器。
+    用法：@admin_required 放在 @admin_bp.route(...) 之下、def 之上。
+    未登录或非管理员时：
+      - AJAX/JSON 请求 → 返回 403 JSON
+      - 普通页面请求 → flash 并跳转到首页（converter.index）
+    这样可消除各路由手抄权限判断的遗漏风险。
+    """
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        if 'username' not in session or not session.get('is_admin'):
+            # 区分 AJAX 与页面请求
+            wants_json = (
+                request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+                or request.is_json
+                or 'application/json' in (request.headers.get('Accept') or '')
+            )
+            if wants_json:
+                return jsonify({'success': False, 'message': '权限不足，请先以管理员身份登录'}), 403
+            from flask import flash, redirect, url_for
+            flash('管理员权限不足', 'error')
+            return redirect(url_for('converter.index'))
+        return func(*args, **kwargs)
+    return wrapper

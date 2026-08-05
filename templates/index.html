@@ -8,7 +8,7 @@
 {% endblock %}
 
 {% block content %}
-<style>
+<style nonce="{{ g.get('csp_nonce', '') }}">
     /* ===== 主页特有样式 ===== */
     .main-wrap { max-width: 960px; margin: 0 auto; }
 

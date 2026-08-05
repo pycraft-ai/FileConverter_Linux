@@ -23,12 +23,13 @@ def validate_password_strength(password: str):
     """
     if len(password) < Config.PASSWORD_MIN_LENGTH:
         return False, f'密码长度不能少于 {Config.PASSWORD_MIN_LENGTH} 位'
-    # if not any(c.isupper() for c in password):
-    #     return False, '密码必须包含至少一个大写字母'
-    # if not any(c.islower() for c in password):
-    #     return False, '密码必须包含至少一个小写字母'
-    # if not any(c.isdigit() for c in password):
-    #     return False, '密码必须包含至少一个数字'
+    # 复杂度校验：大小写字母 + 数字（公网环境必须开启）
+    if not any(c.isupper() for c in password):
+        return False, '密码必须包含至少一个大写字母'
+    if not any(c.islower() for c in password):
+        return False, '密码必须包含至少一个小写字母'
+    if not any(c.isdigit() for c in password):
+        return False, '密码必须包含至少一个数字'
     return True, ''
 
 

@@ -377,6 +377,14 @@ def convert():
 
     logger.info("开始转换 | user=%s mode=%s task_id=%s", _uname, mode, task_id)
 
+    # 将 task_id 绑定到当前会话，用于下载时校验文件归属（防 IDOR 越权下载）
+    owned = session.get('owned_tasks') or []
+    if task_id not in owned:
+        owned.append(task_id)
+        # 仅保留最近 50 个，避免会话无限膨胀
+        session['owned_tasks'] = owned[-50:]
+        session.modified = True
+
     try:
         input_paths = []
         original_filenames = []
@@ -541,6 +549,7 @@ def convert():
             for i, input_path in enumerate(input_paths):
                 orig_name = original_filenames[i] if i < len(original_filenames) else os.path.basename(input_path)
                 base_name, _ = os.path.splitext(orig_name)
+                base_name = secure_filename(base_name)
                 output_path = os.path.join(Config.OUTPUT_FOLDER, f'{task_id}_{base_name}_{suffix}.pdf')
 
                 try:
@@ -590,6 +599,7 @@ def convert():
 
             # 用第一个文件名作为压缩包命名基础
             base_name = os.path.splitext(original_filenames[0])[0] if original_filenames else '文件'
+            base_name = secure_filename(base_name)
             output_ext = '.tar.gz' if archive_format == 'tar.gz' else f'.{archive_format}'
             output_path = os.path.join(Config.OUTPUT_FOLDER, f'{task_id}_{base_name}_压缩包{output_ext}')
 
@@ -671,6 +681,7 @@ def convert():
             for i, input_path in enumerate(input_paths):
                 orig_name = original_filenames[i] if i < len(original_filenames) else os.path.basename(input_path)
                 base_name, _ = os.path.splitext(orig_name)
+                base_name = secure_filename(base_name)
                 output_path = os.path.join(Config.OUTPUT_FOLDER, f'{task_id}_{base_name}_转{target_fmt.upper()}{output_ext}')
 
                 try:
@@ -715,6 +726,7 @@ def convert():
             for i, input_path in enumerate(input_paths):
                 orig_name = original_filenames[i] if i < len(original_filenames) else os.path.basename(input_path)
                 base_name, _ = os.path.splitext(orig_name)
+                base_name = secure_filename(base_name)
                 output_path = os.path.join(Config.OUTPUT_FOLDER, f'{task_id}_{base_name}_压缩.pdf')
 
                 try:
@@ -759,6 +771,7 @@ def convert():
             for i, input_path in enumerate(input_paths):
                 orig_name = original_filenames[i] if i < len(original_filenames) else os.path.basename(input_path)
                 base_name, _ = os.path.splitext(orig_name)
+                base_name = secure_filename(base_name)
                 output_path = os.path.join(Config.OUTPUT_FOLDER, f'{task_id}_{base_name}_提取.pdf')
 
                 try:
@@ -808,6 +821,8 @@ def convert():
             for i, input_path in enumerate(input_paths):
                 orig_name = original_filenames[i] if i < len(original_filenames) else os.path.basename(input_path)
                 base_name, ext = os.path.splitext(orig_name)
+                base_name = secure_filename(base_name)
+                ext = secure_filename(ext)
                 # 保持原格式或转为 jpg
                 out_ext = ext if ext.lower() in ('.jpg', '.jpeg', '.png', '.webp') else '.jpg'
                 output_path = os.path.join(Config.OUTPUT_FOLDER, f'{task_id}_{base_name}_压缩{out_ext}')
@@ -853,6 +868,7 @@ def convert():
             for i, input_path in enumerate(input_paths):
                 orig_name = original_filenames[i] if i < len(original_filenames) else os.path.basename(input_path)
                 base_name, _ = os.path.splitext(orig_name)
+                base_name = secure_filename(base_name)
                 output_path = os.path.join(Config.OUTPUT_FOLDER, f'{task_id}_{base_name}.mp3')
                 try:
                     single_result = Function.txt_to_speech(input_path, output_path, voice=voice, rate=rate)
@@ -910,6 +926,7 @@ def convert():
             for i, input_path in enumerate(input_paths):
                 orig_name = original_filenames[i] if i < len(original_filenames) else os.path.basename(input_path)
                 base_name, _ = os.path.splitext(orig_name)
+                base_name = secure_filename(base_name)
                 # OCR 模式输出扩展名跟随所选格式
                 if mode in ('PDF OCR识别', '图片OCR识别'):
                     out_ext = f'.{output_format}'
@@ -1084,24 +1101,42 @@ def convert():
 
 @converter_bp.route('/download/<path:filename>')
 def download(filename):
-    """下载转换后的文件（支持子路径，如 taskid_解压文件/sub/file.txt）"""
-    # 游客允许下载（仅能凭带 task_id 的 URL 下载自己的转换结果）
+    """下载转换后的文件（支持子路径，如 taskid_解压文件/sub/file.txt）
+
+    安全：
+    1. 必须登录或游客（会话已种）；
+    2. 路径严格收敛在 OUTPUT_FOLDER 内（send_from_directory + commonpath 防穿越/兄弟目录误放行）；
+    3. task_id 归属校验——只能下载本会话产生的转换结果，防 IDOR 越权。
+    """
     if 'username' not in session and not session.get('is_guest'):
         return redirect(url_for('auth.login'))
 
-    # 安全检查：防止路径穿越
-    safe_path = os.path.normpath(
-        os.path.join(Config.OUTPUT_FOLDER, filename)
-    )
-    if not safe_path.startswith(os.path.normpath(Config.OUTPUT_FOLDER)):
-        return jsonify({'success': False, 'message': '无效的文件路径'})
+    # 1) 路径严格收敛，禁止 ../ 穿越与兄弟目录（如 outputs_bak）误放行
+    output_folder = os.path.abspath(Config.OUTPUT_FOLDER)
+    target = os.path.abspath(os.path.join(output_folder, filename))
+    try:
+        if os.path.commonpath([output_folder, target]) != output_folder:
+            return jsonify({'success': False, 'message': '无效的文件路径'}), 400
+    except ValueError:
+        return jsonify({'success': False, 'message': '无效的文件路径'}), 400
 
-    if not os.path.exists(safe_path):
-        return jsonify({'success': False, 'message': '文件不存在或已过期'})
+    if not os.path.exists(target):
+        return jsonify({'success': False, 'message': '文件不存在或已过期'}), 404
+
+    # 2) task_id 归属校验：从 filename 提取首段 task_id 前缀
+    top_name = filename.split('/', 1)[0]
+    task_id = top_name.split('_', 1)[0] if '_' in top_name else top_name
+    owned = session.get('owned_tasks') or []
+    if task_id not in owned:
+        # 非本会话产生的文件，拒绝下载（防越权）
+        client_ip = get_client_ip() or request.remote_addr or ''
+        logger.warning("下载越权被拒绝 | user=%s task_id=%s ip=%s file=%s",
+                       session.get('username', 'guest'), task_id, client_ip, filename)
+        return jsonify({'success': False, 'message': '无权访问该文件'}), 403
 
     # 用 name 参数作为下载显示的文件名（去掉哈希前缀）
     display_name = request.args.get('name') or os.path.basename(filename)
-    return send_file(safe_path, as_attachment=True, download_name=display_name)
+    return send_file(target, as_attachment=True, download_name=display_name)
 
 
 @converter_bp.route('/contact', methods=['GET', 'POST'])

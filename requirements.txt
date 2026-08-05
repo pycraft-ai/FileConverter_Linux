@@ -7,7 +7,7 @@ pdf2docx
 pdf2image
 pdfminer.six
 python-pptx
-PyPDF2
+pypdf
 Werkzeug
 requests
 markdown

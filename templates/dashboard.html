@@ -6,7 +6,7 @@
 {% endblock %}
 
 {% block content %}
-<style>
+<style nonce="{{ g.get('csp_nonce', '') }}">
     .dash-header {
         display: flex; align-items: center; justify-content: space-between;
         margin-bottom: 20px;

@@ -12,6 +12,7 @@ from routes.converter import converter_bp
 from routes.admin import admin_bp
 
 import dotenv
+from datetime import timedelta
 
 _env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
 dotenv.load_dotenv(_env_path)
@@ -24,6 +25,16 @@ app = Flask(__name__)
 app.config.from_object(Config)
 app.config['SECRET_KEY'] = Config.SECRET_KEY
 app.config['PREFERRED_URL_SCHEME'] = 'https'  # Cloudflare 代理下保证 URL 正确
+
+# ===== Session Cookie 安全属性（公网部署必须开启）=====
+# SECURE：仅 HTTPS 传输（走 Cloudflare Tunnel 时为 True）
+app.config['SESSION_COOKIE_SECURE'] = True
+# HTTPONLY：禁止 JS 读取，降低 XSS 窃取 session 风险
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+# SAMESITE：防御 CSRF
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+# 会话过期时间，避免永久有效
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)
 
 # 注册蓝图
 app.register_blueprint(auth_bp)
@@ -157,7 +168,12 @@ def _stop_periodic_cleanup():
 
 @app.before_request
 def before_request():
-    """请求前处理：CSRF 校验 + IP 黑名单检查 + 记录开始时间"""
+    """请求前处理：CSRF 校验 + IP 黑名单检查 + 记录开始时间 + 生成 CSP nonce"""
+    # 0. 提前生成 CSP nonce（模板渲染发生在 after_request 之前）
+    import secrets
+    from flask import g
+    g.csp_nonce = secrets.token_hex(16)
+
     # 1. CSRF 防护（跳过 GET/HEAD/OPTIONS）
     if Config.CSRF_ENABLED and request.method not in ('GET', 'HEAD', 'OPTIONS'):
         if request.path not in _CSRF_EXEMPT_PATHS:
@@ -185,18 +201,39 @@ def after_request(response):
         response.headers['X-Content-Type-Options'] = 'nosniff'
         response.headers['X-Frame-Options'] = 'DENY'
         response.headers['Referrer-Policy'] = 'same-origin'
-        # 防 XSS 兜底（内联脚本较多，采用宽松策略：允许自身脚本，禁外部注入）
+        # 防 XSS 兜底。动态放行 Config.CDN_BASE_URL 的域名（模板所有 CDN 资源都走它），
+        # 避免 CSP 误拦静态资源导致图标/样式失效。
+        try:
+            from urllib.parse import urlparse
+            cdn_host = urlparse(Config.CDN_BASE_URL).netloc
+        except Exception:
+            cdn_host = 'cdn.staticfile.org'
+        if not cdn_host:
+            cdn_host = 'cdn.staticfile.org'
+        cdn_src = f'https://{cdn_host}'
+        # 生成 CSP nonce，用于内联脚本和样式
+        # 注意：nonce 已在 before_request 中生成并存入 g.csp_nonce，此处直接使用
+        from flask import g
+        nonce = g.get('csp_nonce', '')
         response.headers['Content-Security-Policy'] = (
-            "default-src 'self'; "
-            "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
-            "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
-            "img-src 'self' data: https:; "
-            "font-src 'self' https://cdn.jsdelivr.net data:; "
-            "connect-src 'self' https: http:"
+            f"default-src 'self'; "
+            f"script-src 'self' 'nonce-{nonce}' {cdn_src} https://cdn.jsdelivr.net; "
+            f"style-src 'self' 'nonce-{nonce}' {cdn_src} https://cdn.jsdelivr.net; "
+            f"img-src 'self' data: https:; "
+            f"font-src 'self' {cdn_src} https://cdn.jsdelivr.net data:; "
+            f"connect-src 'self' https:; "
+            f"object-src 'none'; "
+            f"base-uri 'self'; "
+            f"frame-ancestors 'none'"
         )
         response.headers['Permissions-Policy'] = (
             'camera=(), microphone=(), geolocation=()'
         )
+        # HSTS：强制浏览器仅经 HTTPS 访问（仅当全站 HTTPS 时开启）
+        if request.is_secure or request.headers.get('X-Forwarded-Proto') == 'https':
+            response.headers['Strict-Transport-Security'] = (
+                'max-age=31536000; includeSubDomains'
+            )
         # 记录访问日志前先设置安全头，保证跳过日志时安全头仍生效
         if _should_skip_log(request.path):
             return response
@@ -264,6 +301,9 @@ if __name__ == '__main__':
     logger.info("后台文件清理任务已启动（间隔 1 小时）")
 
     debug_mode = os.environ.get('FLASK_DEBUG', '0') == '1'
+    # 公网部署必须：bind 仅本地回环，由 Cloudflare Tunnel / Nginx 反代对外。
+    # 若直连 0.0.0.0 暴露 5000 端口，攻击者可伪造 CF-Connecting-IP 绕过 IP 黑名单。
+    bind_host = os.environ.get('BIND_HOST', '127.0.0.1')
     port = int(os.environ.get('PORT', 5000))
-    logger.info("应用启动 | port=%s debug=%s", port, debug_mode)
-    app.run(host='0.0.0.0', port=port, debug=debug_mode)
+    logger.info("应用启动 | host=%s port=%s debug=%s", bind_host, port, debug_mode)
+    app.run(host=bind_host, port=port, debug=debug_mode)

@@ -2,6 +2,7 @@ from flask import Blueprint, render_template, request, jsonify, session, redirec
     url_for, flash
 from database.db_manager import DatabaseManager
 from utils.logger import get_logger
+from utils import admin_required
 from config import Config
 
 admin_bp = Blueprint('admin', __name__)
@@ -9,11 +10,8 @@ logger = get_logger(__name__)
 
 
 @admin_bp.route('/admin')
+@admin_required
 def admin_panel():
-    if 'username' not in session or not session.get('is_admin'):
-        flash('管理员权限不足', 'error')
-        return redirect(url_for('converter.index'))
-
     # 获取仪表盘统计
     stats_success, stats = DatabaseManager.get_admin_dashboard_stats()
     trend_success, trend = DatabaseManager.get_conversion_trend(days=7)
@@ -36,12 +34,9 @@ def admin_panel():
 
 
 @admin_bp.route('/admin/dashboard')
+@admin_required
 def admin_dashboard():
     """管理员仪表盘页面（全屏图表视图）"""
-    if 'username' not in session or not session.get('is_admin'):
-        flash('管理员权限不足', 'error')
-        return redirect(url_for('converter.index'))
-
     stats_success, stats = DatabaseManager.get_admin_dashboard_stats()
     trend_success, trend = DatabaseManager.get_conversion_trend(days=7)
     modes = DatabaseManager.get_all_modes()
@@ -55,11 +50,9 @@ def admin_dashboard():
 
 
 @admin_bp.route('/admin/api/dashboard_stats')
+@admin_required
 def api_dashboard_stats():
     """API: 获取仪表盘统计数据"""
-    if 'username' not in session or not session.get('is_admin'):
-        return jsonify({'success': False, 'message': '权限不足'})
-
     days = request.args.get('days', 7, type=int)
     stats_success, stats = DatabaseManager.get_admin_dashboard_stats()
     trend_success, trend = DatabaseManager.get_conversion_trend(days=days)
@@ -72,20 +65,16 @@ def api_dashboard_stats():
 
 
 @admin_bp.route('/admin/api/storage_stats')
+@admin_required
 def api_storage_stats():
     """API: 获取存储空间统计"""
-    if 'username' not in session or not session.get('is_admin'):
-        return jsonify({'success': False, 'message': '权限不足'})
-
     storage = DatabaseManager.get_storage_stats()
     return jsonify({'success': True, 'storage': storage})
 
 
 @admin_bp.route('/admin/block', methods=['POST'])
+@admin_required
 def block_user():
-    if 'username' not in session or not session.get('is_admin'):
-        return jsonify({'success': False, 'message': '权限不足'})
-
     username = request.form.get('username', '').strip()
     if not username:
         return jsonify({'success': False, 'message': '请输入用户名'})
@@ -99,10 +88,8 @@ def block_user():
 
 
 @admin_bp.route('/admin/renew', methods=['POST'])
+@admin_required
 def renew_user():
-    if 'username' not in session or not session.get('is_admin'):
-        return jsonify({'success': False, 'message': '权限不足'})
-
     username = request.form.get('username', '').strip()
     try:
         days = int(request.form.get('days', 30))
@@ -121,10 +108,8 @@ def renew_user():
 
 
 @admin_bp.route('/admin/increase_times', methods=['POST'])
+@admin_required
 def increase_times():
-    if 'username' not in session or not session.get('is_admin'):
-        return jsonify({'success': False, 'message': '权限不足'})
-
     username = request.form.get('username', '').strip()
     try:
         times = int(request.form.get('times', 10))
@@ -143,12 +128,9 @@ def increase_times():
 
 
 @admin_bp.route('/admin/logs')
+@admin_required
 def view_logs():
     """查看操作日志"""
-    if 'username' not in session or not session.get('is_admin'):
-        flash('管理员权限不足', 'error')
-        return redirect(url_for('converter.index'))
-
     # 获取分页参数
     page = request.args.get('page', 1, type=int)
     per_page = request.args.get('per_page', 50, type=int)
@@ -196,12 +178,9 @@ def view_logs():
 
 
 @admin_bp.route('/admin/announcements')
+@admin_required
 def manage_announcements():
     """管理公告"""
-    if 'username' not in session or not session.get('is_admin'):
-        flash('管理员权限不足', 'error')
-        return redirect(url_for('converter.index'))
-    
     success, announcements = DatabaseManager.get_all_announcements()
     if not success:
         flash('获取公告列表失败', 'error')
@@ -211,11 +190,9 @@ def manage_announcements():
 
 
 @admin_bp.route('/admin/announcement/create', methods=['POST'])
+@admin_required
 def create_announcement():
     """创建公告"""
-    if 'username' not in session or not session.get('is_admin'):
-        return jsonify({'success': False, 'message': '权限不足'})
-    
     title = request.form.get('title', '').strip()
     content = request.form.get('content', '').strip()
     announce_type = request.form.get('type', 'info')
@@ -248,11 +225,9 @@ def create_announcement():
 
 
 @admin_bp.route('/admin/announcement/toggle', methods=['POST'])
+@admin_required
 def toggle_announcement():
     """切换公告状态"""
-    if 'username' not in session or not session.get('is_admin'):
-        return jsonify({'success': False, 'message': '权限不足'})
-    
     try:
         announce_id = int(request.form.get('id', 0))
     except ValueError:
@@ -263,11 +238,9 @@ def toggle_announcement():
 
 
 @admin_bp.route('/admin/announcement/delete', methods=['POST'])
+@admin_required
 def delete_announcement():
     """删除公告"""
-    if 'username' not in session or not session.get('is_admin'):
-        return jsonify({'success': False, 'message': '权限不足'})
-    
     try:
         announce_id = int(request.form.get('id', 0))
     except ValueError:
@@ -278,11 +251,9 @@ def delete_announcement():
 
 
 @admin_bp.route('/admin/announcement/edit', methods=['POST'])
+@admin_required
 def edit_announcement():
     """编辑公告（含自动消失时间）"""
-    if 'username' not in session or not session.get('is_admin'):
-        return jsonify({'success': False, 'message': '权限不足'})
-
     try:
         announce_id = int(request.form.get('id', 0))
     except ValueError:
@@ -317,12 +288,9 @@ def edit_announcement():
 
 
 @admin_bp.route('/admin/ip_analysis')
+@admin_required
 def ip_analysis():
     """IP访问分析页面"""
-    if 'username' not in session or not session.get('is_admin'):
-        flash('管理员权限不足', 'error')
-        return redirect(url_for('converter.index'))
-    
     # 获取时间范围参数
     hours = request.args.get('hours', Config.IP_ANALYSIS_DEFAULT_HOURS, type=int)
     
@@ -358,11 +326,9 @@ def ip_analysis():
 
 
 @admin_bp.route('/admin/block_ip', methods=['POST'])
+@admin_required
 def block_ip():
     """封禁IP"""
-    if 'username' not in session or not session.get('is_admin'):
-        return jsonify({'success': False, 'message': '权限不足'})
-    
     ip_address = request.form.get('ip_address', '').strip()
     reason = request.form.get('reason', '').strip()
     expire_days = request.form.get('expire_days', '')
@@ -389,11 +355,9 @@ def block_ip():
 
 
 @admin_bp.route('/admin/unblock_ip', methods=['POST'])
+@admin_required
 def unblock_ip():
     """解封IP"""
-    if 'username' not in session or not session.get('is_admin'):
-        return jsonify({'success': False, 'message': '权限不足'})
-    
     ip_address = request.form.get('ip_address', '').strip()
     
     if not ip_address:
@@ -406,11 +370,9 @@ def unblock_ip():
 
 
 @admin_bp.route('/admin/api/ip_map_data')
+@admin_required
 def api_ip_map_data():
     """API: 获取IP地图数据"""
-    if 'username' not in session or not session.get('is_admin'):
-        return jsonify({'success': False, 'message': '权限不足'})
-    
     hours = request.args.get('hours', Config.IP_ANALYSIS_DEFAULT_HOURS, type=int)
     
     # 获取已有地理位置的IP列表（不再自动获取位置，避免卡顿）
@@ -423,11 +385,9 @@ def api_ip_map_data():
 
 
 @admin_bp.route('/admin/api/refresh_ip_locations', methods=['POST'])
+@admin_required
 def refresh_ip_locations():
     """API: 手动刷新IP地理位置（批量处理）"""
-    if 'username' not in session or not session.get('is_admin'):
-        return jsonify({'success': False, 'message': '权限不足'})
-    
     hours = request.form.get('hours', 24, type=int)
     limit = request.form.get('limit', 10, type=int)  # 每次最多处理10个IP，避免卡顿
     
@@ -492,11 +452,9 @@ def refresh_ip_locations():
 
 
 @admin_bp.route('/admin/api/test_ip_location', methods=['POST'])
+@admin_required
 def api_test_ip_location():
     """API: 测试指定IP的地理位置"""
-    if 'username' not in session or not session.get('is_admin'):
-        return jsonify({'success': False, 'message': '权限不足'})
-    
     ip_address = request.form.get('ip', '').strip()
     if not ip_address:
         return jsonify({'success': False, 'message': '请输入IP地址'})
@@ -515,12 +473,9 @@ def api_test_ip_location():
 
 
 @admin_bp.route('/admin/contacts')
+@admin_required
 def manage_contacts():
     """管理联系消息"""
-    if 'username' not in session or not session.get('is_admin'):
-        flash('管理员权限不足', 'error')
-        return redirect(url_for('converter.index'))
-    
     page = request.args.get('page', 1, type=int)
     
     success, messages, total = DatabaseManager.get_contact_messages(page=page, per_page=20)
@@ -540,11 +495,9 @@ def manage_contacts():
 
 
 @admin_bp.route('/admin/contact/mark_read', methods=['POST'])
+@admin_required
 def mark_contact_read():
     """标记消息已读"""
-    if 'username' not in session or not session.get('is_admin'):
-        return jsonify({'success': False, 'message': '权限不足'})
-    
     msg_id = request.form.get('id', type=int)
     if msg_id:
         DatabaseManager.mark_message_read(msg_id)
@@ -553,20 +506,17 @@ def mark_contact_read():
 
 
 @admin_bp.route('/admin/unread_count')
+@admin_required
 def unread_count():
     """获取未读消息数量（用于导航栏徽章）"""
-    if 'username' not in session or not session.get('is_admin'):
-        return jsonify({'count': 0}), 403
     count = DatabaseManager.get_unread_contact_count()
     return jsonify({'count': count})
 
 
 @admin_bp.route('/admin/contact/reply', methods=['POST'])
+@admin_required
 def reply_contact():
     """回复联系消息（支持多次回复）"""
-    if 'username' not in session or not session.get('is_admin'):
-        return jsonify({'success': False, 'message': '权限不足'})
-    
     msg_id = request.form.get('id', type=int)
     reply_text = request.form.get('reply', '').strip()
     

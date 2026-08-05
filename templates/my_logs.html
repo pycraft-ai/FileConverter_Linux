@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}转换记录 - 文件转化工具{% endblock %}
 {% block content %}
-<style>
+<style nonce="{{ g.get('csp_nonce', '') }}">
 .main-wrap { max-width: 900px; margin: 0 auto; }
 .page-header {
     display: flex; align-items: center; justify-content: space-between;

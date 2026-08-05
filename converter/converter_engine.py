@@ -1006,8 +1006,22 @@ ul, ol {{ padding-left: 2em; }}
             return False
 
     @staticmethod
+    def _safe_archive_members(member_names, output_dir):
+        """
+        校验压缩包成员路径不会跨越 output_dir（防御 Zip Slip / 路径穿越）。
+        合法成员必须落在 output_dir 之内（含目录自身）。
+        """
+        base = os.path.realpath(output_dir)
+        for name in member_names:
+            # 规范化成员名，剥离开头的 ./ 与多余的斜杠
+            norm = name.replace('\\', '/')
+            dest = os.path.realpath(os.path.join(base, norm))
+            if dest != base and not dest.startswith(base + os.sep):
+                raise ValueError(f'压缩包含非法路径成员: {name!r}')
+
+    @staticmethod
     def decompress_archive(input_path, output_dir, password=None):
-        """解压压缩包（自动识别格式）"""
+        """解压压缩包（自动识别格式）。防御 Zip Slip 与符号链接穿越。"""
         fname = input_path.lower()
         try:
             if fname.endswith('.zip'):
@@ -1016,26 +1030,36 @@ ul, ol {{ padding-left: 2em; }}
                     import pyzipper
                     with pyzipper.AESZipFile(input_path, 'r') as zf:
                         zf.setpassword(password.encode('utf-8'))
+                        Function._safe_archive_members(zf.namelist(), output_dir)
                         zf.extractall(output_dir)
                 else:
                     import zipfile
                     with zipfile.ZipFile(input_path, 'r') as zf:
+                        Function._safe_archive_members(zf.namelist(), output_dir)
                         zf.extractall(output_dir)
                 return True
             elif fname.endswith('.tar.gz') or fname.endswith('.tgz') or fname.endswith('.tar'):
                 import tarfile
                 with tarfile.open(input_path, 'r:*') as tf:
-                    tf.extractall(output_dir)
+                    # filter='data' 自动防御路径穿越/绝对路径/符号链接/设备文件
+                    members = tf.getmembers()
+                    Function._safe_archive_members([m.name for m in members], output_dir)
+                    tf.extractall(output_dir, filter='data')
                 return True
             elif fname.endswith('.7z'):
                 import py7zr
                 with py7zr.SevenZipFile(input_path, 'r',
                                         password=password) as szf:
+                    Function._safe_archive_members(szf.getnames(), output_dir)
                     szf.extractall(output_dir)
                 return True
             else:
                 logger.error("不支持的解压格式: %s", input_path)
                 return False
+        except ValueError as e:
+            # 路径穿越等安全问题，明确记录并拒绝
+            logger.error("解压被拒绝（安全校验失败）: %s", e)
+            return False
         except Exception as e:
             logger.error("解压失败: %s", e)
             return False
