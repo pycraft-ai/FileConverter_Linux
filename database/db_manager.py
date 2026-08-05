@@ -871,6 +871,36 @@ class DatabaseManager:
         return False
 
     @staticmethod
+    def cleanup_old_login_attempts(retention_hours=24):
+        """清理超过保留期的登录尝试记录，防止表无限膨胀导致 DoS。
+
+        登录尝试每次登录都会 INSERT，若不清理会无限增长，
+        撑爆数据库并拖慢管理后台的限流查询。
+        """
+        conn = None
+        try:
+            conn = DatabaseManager.get_connection()
+            if conn:
+                cursor = conn.cursor()
+                cutoff = datetime.now() - timedelta(hours=retention_hours)
+                cursor.execute(
+                    "DELETE FROM login_attempts WHERE attempt_time < %s",
+                    (cutoff,)
+                )
+                conn.commit()
+                deleted = cursor.rowcount
+                cursor.close()
+                return True, deleted
+        except Error as e:
+            logger.error("清理登录尝试记录错误: %s", e)
+            if conn:
+                conn.rollback()
+        finally:
+            if conn:
+                DatabaseManager.return_connection(conn)
+        return False, 0
+
+    @staticmethod
     def get_login_failures(identifier, ip_address, window_seconds=300):
         """获取窗口期内的登录失败次数"""
         conn = None
@@ -985,6 +1015,35 @@ class DatabaseManager:
             if conn:
                 DatabaseManager.return_connection(conn)
         return False, 0
+
+    @staticmethod
+    def is_output_owned_by_user(username, output_path):
+        """校验某输出文件是否属于该用户的一条成功转换记录。
+
+        用于下载归属校验（防 IDOR 越权）：历史记录页面的文件来自数据库，
+        session 里的 owned_tasks 只保留最近 50 个且重新登录即清空，因此
+        必须回查数据库，确认 output_path 对应一条该用户的成功转换记录。
+        """
+        conn = None
+        try:
+            conn = DatabaseManager.get_connection()
+            if conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """SELECT id FROM conversion_logs
+                    WHERE username = %s AND success = TRUE AND output_path = %s
+                    LIMIT 1""",
+                    (username, output_path)
+                )
+                exists = cursor.fetchone() is not None
+                cursor.close()
+                return exists
+        except Error as e:
+            logger.error("校验输出文件归属失败 | user=%s err=%s", username, e)
+        finally:
+            if conn:
+                DatabaseManager.return_connection(conn)
+        return False
 
     @staticmethod
     def get_user_logs(username, limit=50, offset=0):

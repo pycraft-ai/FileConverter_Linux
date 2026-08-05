@@ -38,8 +38,7 @@ nohup.out
 logs/
 flask_output.log
 
-# 本地测试/调试脚本（勿部署）
-test_all_modes.py
+
 
 # 数据库
 *.db
@@ -49,3 +48,7 @@ test_all_modes.py
 
 # 配置文件
 *.ini
+
+# 所有测试类文件
+test_*.py
+.pytest_cache

@@ -1,7 +1,9 @@
 import os
+import signal
 import shutil
 import subprocess
 import threading
+import resource
 import concurrent.futures
 from datetime import datetime
 from utils.logger import get_logger
@@ -28,6 +30,11 @@ PDF_TO_IMAGE_DPI = 300               # PDF 转图片 DPI
 OCR_TIMEOUT_SECONDS = 60             # OCR 最大处理时间（秒）
 SLIDE_WIDTH_INCHES = 16              # PPT 幻灯片宽度（16:9）
 SLIDE_HEIGHT_INCHES = 9              # PPT 幻灯片高度（16:9）
+
+# LibreOffice 转换超时与资源限制（防止恶意/超大文件导致进程挂死或 OOM 造成 DoS）
+LIBREOFFICE_TIMEOUT_SECONDS = int(os.environ.get('LIBREOFFICE_TIMEOUT_SECONDS', 120))  # 单次转换硬超时
+LIBREOFFICE_MAX_RSS_MB = int(os.environ.get('LIBREOFFICE_MAX_RSS_MB', 1024))           # 进程地址空间上限(MB)
+LIBREOFFICE_CPU_TIME = int(os.environ.get('LIBREOFFICE_CPU_TIME', 120))                # CPU 时间上限(秒)
 
 # LibreOffice 转换锁（LibreOffice 实例不宜并发）
 _libreoffice_lock = threading.Lock()
@@ -86,15 +93,45 @@ def _libreoffice_convert(input_path, output_dir, convert_filter=None):
                '--convert-to', actual_filter,
                '--outdir', abs_output, abs_input]
 
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=120  # 2分钟超时
-        )
+        def _preexec_fn():
+            """在子进程中设置资源限制，约束 LibreOffice 可用资源，防止 DoS。"""
+            try:
+                # 新进程组，便于超时时整体 kill（含 libreoffice 派生的所有子进程）
+                os.setsid()
+            except Exception:
+                pass
+            try:
+                # 地址空间上限（字节）
+                rss_bytes = LIBREOFFICE_MAX_RSS_MB * 1024 * 1024
+                resource.setrlimit(resource.RLIMIT_AS, (rss_bytes, rss_bytes))
+                # CPU 时间上限（秒）：超出后内核发送 SIGXCPU
+                resource.setrlimit(resource.RLIMIT_CPU, (LIBREOFFICE_CPU_TIME, LIBREOFFICE_CPU_TIME))
+                # 文件描述符数量上限
+                resource.setrlimit(resource.RLIMIT_NOFILE, (1024, 1024))
+            except (ValueError, OSError):
+                pass
 
-        if result.returncode != 0:
-            logger.error("LibreOffice转换失败 (ret %s): %s", result.returncode, result.stderr)
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            preexec_fn=_preexec_fn,
+        )
+        try:
+            stdout, stderr = proc.communicate(timeout=LIBREOFFICE_TIMEOUT_SECONDS)
+            returncode = proc.returncode
+        except subprocess.TimeoutExpired:
+            # 超时：杀掉整个进程组（含 LibreOffice 所有残留子进程），避免孤儿进程累积导致 DoS
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            except (ProcessLookupError, Exception):
+                proc.kill()
+            proc.wait()
+            logger.error("LibreOffice转换超时（超过 %s 秒），已强制终止进程组", LIBREOFFICE_TIMEOUT_SECONDS)
+            return None
+
+        if returncode != 0:
+            logger.error("LibreOffice转换失败 (ret %s): %s", returncode, stderr.decode('utf-8', 'replace'))
             return None
 
         # 解析输出路径
@@ -517,21 +554,25 @@ ul, ol {{ padding-left: 2em; }}
             image_files.sort(key=natural_sort_key)
 
             # 逐张处理，不一次加载所有图片到内存
-            first_img = Image.open(image_files[0]).convert('RGB')
-            if len(image_files) == 1:
-                first_img.save(pdfPath, format='PDF', dpi=DEFAULT_IMAGE_DPI)
-                first_img.close()
-            else:
-                # 逐张打开、添加、关闭
-                rest_images = []
-                for img_path in image_files[1:]:
-                    img = Image.open(img_path).convert('RGB')
-                    rest_images.append(img)
-                first_img.save(
-                    pdfPath, format='PDF', dpi=DEFAULT_IMAGE_DPI,
-                    save_all=True, append_images=rest_images
-                )
-                first_img.close()
+            first_img = None
+            rest_images = []
+            try:
+                first_img = Image.open(image_files[0]).convert('RGB')
+                if len(image_files) == 1:
+                    first_img.save(pdfPath, format='PDF', dpi=DEFAULT_IMAGE_DPI)
+                else:
+                    # 逐张打开、添加、关闭
+                    for img_path in image_files[1:]:
+                        img = Image.open(img_path).convert('RGB')
+                        rest_images.append(img)
+                    first_img.save(
+                        pdfPath, format='PDF', dpi=DEFAULT_IMAGE_DPI,
+                        save_all=True, append_images=rest_images
+                    )
+            finally:
+                # 无论成功或中途异常，都确保所有已打开的图片对象被关闭，避免资源泄漏
+                if first_img is not None:
+                    first_img.close()
                 for img in rest_images:
                     img.close()
             return True
@@ -1021,20 +1062,25 @@ ul, ol {{ padding-left: 2em; }}
 
     @staticmethod
     def decompress_archive(input_path, output_dir, password=None):
-        """解压压缩包（自动识别格式）。防御 Zip Slip 与符号链接穿越。"""
+        """解压压缩包（自动识别格式）。防御 Zip Slip、符号链接穿越与解压炸弹。"""
+        from config import Config
         fname = input_path.lower()
         try:
             if fname.endswith('.zip'):
+                # 解压前按元数据预检解压总大小/文件数，防御 zip 炸弹（在解压前拦截，最有效）
                 if password:
-                    # 加密 ZIP 需用 pyzipper（支持 AES）
                     import pyzipper
                     with pyzipper.AESZipFile(input_path, 'r') as zf:
                         zf.setpassword(password.encode('utf-8'))
+                        infos = zf.infolist()
+                        Function._precheck_archive(infos)
                         Function._safe_archive_members(zf.namelist(), output_dir)
                         zf.extractall(output_dir)
                 else:
                     import zipfile
                     with zipfile.ZipFile(input_path, 'r') as zf:
+                        infos = zf.infolist()
+                        Function._precheck_archive(infos)
                         Function._safe_archive_members(zf.namelist(), output_dir)
                         zf.extractall(output_dir)
                 return True
@@ -1044,25 +1090,70 @@ ul, ol {{ padding-left: 2em; }}
                     # filter='data' 自动防御路径穿越/绝对路径/符号链接/设备文件
                     members = tf.getmembers()
                     Function._safe_archive_members([m.name for m in members], output_dir)
+                    # 预检解压总大小/文件数（tar 成员无 file_size，用 size）
+                    total = sum(m.size for m in members)
+                    if total > Config.ARCHIVE_MAX_TOTAL_BYTES:
+                        raise ValueError('压缩包解压后总大小超过限制')
+                    if len(members) > Config.ARCHIVE_MAX_FILES:
+                        raise ValueError('压缩包文件数量超过限制')
                     tf.extractall(output_dir, filter='data')
                 return True
             elif fname.endswith('.7z'):
                 import py7zr
                 with py7zr.SevenZipFile(input_path, 'r',
                                         password=password) as szf:
-                    Function._safe_archive_members(szf.getnames(), output_dir)
+                    # 7z 先列出文件数，解压后通过目录统计校验总大小
+                    names = szf.getnames()
+                    if len(names) > Config.ARCHIVE_MAX_FILES:
+                        raise ValueError('压缩包文件数量超过限制')
+                    Function._safe_archive_members(names, output_dir)
                     szf.extractall(output_dir)
+                    # 解压后统计实际大小，防止 7z 元数据与实际不符
+                    Function._check_dir_size(output_dir)
                 return True
             else:
                 logger.error("不支持的解压格式: %s", input_path)
                 return False
         except ValueError as e:
-            # 路径穿越等安全问题，明确记录并拒绝
+            # 路径穿越 / 解压炸弹等安全问题，明确记录并拒绝
             logger.error("解压被拒绝（安全校验失败）: %s", e)
             return False
         except Exception as e:
             logger.error("解压失败: %s", e)
             return False
+
+    @staticmethod
+    def _precheck_archive(infos):
+        """解压前预检 zip 成员：总解压大小、文件数量（防御解压炸弹）。
+
+        在 extractall 之前基于压缩包声明的解压大小拦截，避免实际解压造成磁盘/内存耗尽。
+        """
+        from config import Config
+        total_bytes = 0
+        file_count = 0
+        for info in infos:
+            total_bytes += getattr(info, 'file_size', 0)
+            file_count += 1
+            if total_bytes > Config.ARCHIVE_MAX_TOTAL_BYTES:
+                raise ValueError('压缩包解压后总大小超过限制')
+            if file_count > Config.ARCHIVE_MAX_FILES:
+                raise ValueError('压缩包文件数量超过限制')
+
+    @staticmethod
+    def _check_dir_size(output_dir):
+        """统计解压目录的实际大小，超过限制则拒绝并清理。"""
+        from config import Config
+        total = 0
+        for root, _dirs, files in os.walk(output_dir):
+            for f in files:
+                try:
+                    total += os.path.getsize(os.path.join(root, f))
+                except OSError:
+                    pass
+                if total > Config.ARCHIVE_MAX_TOTAL_BYTES:
+                    # 超限：删除已解压内容，避免占用磁盘
+                    shutil.rmtree(output_dir, ignore_errors=True)
+                    raise ValueError('压缩包解压后总大小超过限制')
 
     @staticmethod
     def decrypt_archive(input_path, output_path, password):

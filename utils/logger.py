@@ -38,6 +38,11 @@ def setup_logger(name: str = 'fileconverter',
     if logger.handlers:
         return logger
 
+    # 关键：禁止日志向上传播到 root logger。
+    # gunicorn 会给 root logger 附加默认 handler，若不关闭 propagate，
+    # 同一行日志会被打印两次（自定义格式 + root 的 [INFO] 格式）。
+    logger.propagate = False
+
     # --- 终端输出格式：带颜色级别 + 模块名 ---
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(level)
@@ -64,8 +69,18 @@ def setup_logger(name: str = 'fileconverter',
     file_handler.setFormatter(file_fmt)
     logger.addHandler(file_handler)
 
-    # 降低第三方库日志噪音
+    # 降低第三方库日志噪音（只保留 WARNING 及以上）
     logging.getLogger('werkzeug').setLevel(logging.WARNING)
+    logging.getLogger('mysql.connector').setLevel(logging.WARNING)
+    logging.getLogger('urllib3').setLevel(logging.WARNING)
+    logging.getLogger('requests').setLevel(logging.WARNING)
+    logging.getLogger('PIL').setLevel(logging.WARNING)
+
+    # root logger 兜底：确保未被 fileconverter 显式管理的日志不会以 INFO 级别刷屏。
+    # 第三方库（如 mysql-connector 的插件探测日志）会传播到 root，这里把 root 提到 WARNING，
+    # 避免其 INFO 级别的 [INFO] 噪音混入。
+    root = logging.getLogger()
+    root.setLevel(logging.WARNING)
 
     return logger
 

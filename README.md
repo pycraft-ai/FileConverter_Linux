@@ -140,12 +140,57 @@ vim .env
 
 # 6. 启动（自动初始化数据库表）
 chmod +x start.sh
-./start.sh
+./start.sh            # 默认以 gunicorn 生产模式启动
+MODE=dev ./start.sh   # 开发模式（Flask 调试服务器）
 ```
 
 访问 `http://localhost:5000`，注册账号即可使用。
 
 系统首次启动时自动创建数据库表和管理员账号。
+
+## 生产部署（Gunicorn）
+
+**重要**：公网部署必须使用 **gunicorn** 生产服务器，禁止直接运行 `python3 app.py`（Flask 自带的是单进程同步开发服务器，无法应对并发，也不适合暴露公网）。
+
+### 本地启动（生产模式）
+
+```bash
+# 方式一：通过 start.sh（默认 prod 模式）
+./start.sh
+
+# 方式二：直接使用 gunicorn
+gunicorn -c gunicorn.conf.py app:app
+```
+
+### 推荐架构（Cloudflare Tunnel）
+
+```
+[用户] → Cloudflare CDN/Tunnel → [cloudflared] → 127.0.0.1:5000 (gunicorn)
+                                                    ↓
+                               MySQL(localhost) + LibreOffice + Tesseract
+```
+
+关键安全要点：
+1. **必须保持 `bind = 127.0.0.1`**（gunicorn 配置已默认），由 cloudflared/Nginx 反向代理对外。切勿改成 `0.0.0.0` 直连公网，否则攻击者可伪造 `CF-Connecting-IP` 头绕过 IP 黑名单。
+2. **保持 `TRUST_CF_CONNECTING_IP=1` 和 `TRUSTED_PROXY_IPS=127.0.0.1,::1`**，仅信任本机代理。
+3. 确保云服务器防火墙 / 安全组**不对外开放 5000 端口**（只放行 Cloudflare Tunnel 需要的端口，或仅保留本地回环）。
+
+### gunicorn 环境变量
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `GUNICORN_WORKERS` | worker 进程数 | `2*CPU核数+1` |
+| `GUNICORN_THREADS` | 每 worker 线程数 | `4` |
+| `GUNICORN_TIMEOUT` | 单请求最大处理时间（秒） | `300` |
+| `GUNICORN_LOG_LEVEL` | 日志级别 | `info` |
+
+### 后台运行
+
+```bash
+nohup ./start.sh > logs/gunicorn.log 2>&1 &
+```
+
+> 说明：数据库建表和后台文件/登录记录清理任务会在首个请求到达时惰性启动（gunicorn 多 worker 下每个 worker 各自执行一次，幂等安全）。
 
 ## 配置说明
 
@@ -204,8 +249,9 @@ chmod +x start.sh
 ```
 ├── app.py                     # Flask 应用入口、中间件（CSRF、IP 封禁、访问日志）
 ├── config.py                  # 配置类（所有配置从 .env 读取）
+├── gunicorn.conf.py           # Gunicorn 生产部署配置
 ├── requirements               # Python 依赖清单
-├── start.sh                   # 启动脚本
+├── start.sh                   # 启动脚本（默认 gunicorn，MODE=dev 走 Flask 调试）
 ├── converter/
 │   ├── __init__.py
 │   └── converter_engine.py    # 核心转换引擎（LibreOffice、OCR、PDF、图片、压缩等）
@@ -281,8 +327,8 @@ chmod +x start.sh
 1. **路径分隔符** — Linux 使用 `/`，已全部适配
 2. **文件清理** — `uploads/` 和 `outputs/` 中的超时文件（默认 7 天）在应用退出时自动清理
 3. **MySQL 连接** — 推荐 `localhost`（socket 连接，比 TCP 更快）
-4. **生产环境** — 关闭调试模式：`export FLASK_DEBUG=0`
-5. **后台运行** — `nohup ./start.sh > output.log 2>&1 &`
+4. **生产环境** — 使用 gunicorn（`./start.sh` 默认即 gunicorn 模式），并关闭调试：`MODE=dev ./start.sh` 才走 Flask 调试服务器
+5. **后台运行** — `nohup ./start.sh > logs/gunicorn.log 2>&1 &`
 6. **代理环境** — 如使用 Nginx / Cloudflare，配置 `TRUSTED_PROXY_IPS` 以获取真实 IP；**Cloudflare Tunnel 部署**（cloudflared 与 Flask 同机）时，保持 `TRUST_CF_CONNECTING_IP=1`，否则会记录到 Cloudflare 出口 IP（可能为 IPv6）而非用户真实 IP
 7. **LibreOffice 互斥锁** — 所有 Office 相关转换使用线程锁串行执行，避免 LibreOffice 实例冲突
 8. **OCR 超时控制** — 使用 `ThreadPoolExecutor` + `future.result(timeout)` 实现跨平台线程安全超时，避免卡死

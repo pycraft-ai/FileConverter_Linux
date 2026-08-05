@@ -10,7 +10,10 @@ from werkzeug.utils import secure_filename
 from config import Config
 from converter.converter_engine import Function
 from database.db_manager import DatabaseManager
-from utils import validate_file_content, get_client_ip, check_rate_limit
+from utils import (
+    validate_file_content, get_client_ip, check_rate_limit,
+    validate_pdf_page_count, validate_image_dimensions,
+)
 from utils.logger import get_logger
 
 converter_bp = Blueprint('converter', __name__)
@@ -223,6 +226,30 @@ def _validate_saved_file(filepath: str, filename: str, mode: str) -> str | None:
         except Exception:
             pass
         return f'文件安全校验失败：{err_msg}'
+
+    # ===== DoS 防护：PDF 页数限制 =====
+    # 渲染/OCR 超大 PDF 会耗尽 CPU/内存，限制最大页数
+    if ext == 'pdf':
+        pdf_ok, page_count = validate_pdf_page_count(filepath)
+        if not pdf_ok:
+            try:
+                os.remove(filepath)
+            except Exception:
+                pass
+            return f'PDF 页数过多（{page_count} 页），超过最大允许 {Config.PDF_MAX_PAGES} 页'
+
+    # ===== DoS 防护：图片像素限制 =====
+    # 超大图片（如 10000x10000）解码会 OOM，限制宽*高
+    if ext in ('jpg', 'jpeg', 'png', 'bmp', 'gif', 'tiff', 'webp'):
+        img_ok, dim = validate_image_dimensions(filepath)
+        if not img_ok:
+            try:
+                os.remove(filepath)
+            except Exception:
+                pass
+            if dim:
+                return f'图片尺寸过大（{dim[0]}x{dim[1]} 像素），请压缩后再上传'
+            return '无法读取图片尺寸，已拒绝'
 
     return None
 
@@ -912,9 +939,16 @@ def convert():
                 Config.OUTPUT_FOLDER,
                 f'{task_id}_{dir_name}{out_ext}'
             )
-            result = getattr(Function, MODE_TO_FUNCTION[mode])(
-                input_paths[0], output_path, output_format
-            )
+            # 注意：directory 模式目前仅支持 图片转pdf / 图片转ppt，均为 2 参函数。
+            # 若未来扩展支持 directory 输入的 OCR 模式，需在下方按需传入第 3 参 output_format。
+            if mode in ('PDF OCR识别', '图片OCR识别'):
+                result = getattr(Function, MODE_TO_FUNCTION[mode])(
+                    input_paths[0], output_path, output_format
+                )
+            else:
+                result = getattr(Function, MODE_TO_FUNCTION[mode])(
+                    input_paths[0], output_path
+                )
         else:
             func_name = MODE_TO_FUNCTION.get(mode)
             if not func_name:
@@ -1123,15 +1157,29 @@ def download(filename):
     if not os.path.exists(target):
         return jsonify({'success': False, 'message': '文件不存在或已过期'}), 404
 
-    # 2) task_id 归属校验：从 filename 提取首段 task_id 前缀
+    # 2) task_id 归属校验：防 IDOR 越权下载
     top_name = filename.split('/', 1)[0]
     task_id = top_name.split('_', 1)[0] if '_' in top_name else top_name
     owned = session.get('owned_tasks') or []
-    if task_id not in owned:
-        # 非本会话产生的文件，拒绝下载（防越权）
+
+    if task_id in owned:
+        # 本会话产生（刚转换完），直接放行
+        pass
+    elif 'username' in session:
+        # 登录用户：以数据库为准，校验该输出文件确属当前用户。
+        # 历史记录里的文件由数据库持久化，session 的 owned_tasks 只保留最近 50 个
+        # 且重新登录后即清空，因此必须回查数据库避免误判正常用户为越权。
+        username = session['username']
+        if not DatabaseManager.is_output_owned_by_user(username, target):
+            client_ip = get_client_ip() or request.remote_addr or ''
+            logger.warning("下载越权被拒绝 | user=%s task_id=%s ip=%s file=%s",
+                           username, task_id, client_ip, filename)
+            return jsonify({'success': False, 'message': '无权访问该文件'}), 403
+    else:
+        # 游客且非本会话产生，拒绝下载
         client_ip = get_client_ip() or request.remote_addr or ''
-        logger.warning("下载越权被拒绝 | user=%s task_id=%s ip=%s file=%s",
-                       session.get('username', 'guest'), task_id, client_ip, filename)
+        logger.warning("下载越权被拒绝 | user=guest task_id=%s ip=%s file=%s",
+                       task_id, client_ip, filename)
         return jsonify({'success': False, 'message': '无权访问该文件'}), 403
 
     # 用 name 参数作为下载显示的文件名（去掉哈希前缀）

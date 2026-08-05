@@ -5,6 +5,7 @@ from utils import generate_csrf_token, validate_csrf, get_client_ip, setup_logge
 import os
 import time
 import atexit
+import threading
 from concurrent.futures import ThreadPoolExecutor
 # 导入蓝图
 from routes.auth import auth_bp
@@ -122,6 +123,38 @@ def cleanup_old_files():
 
 _cleanup_event = None  # 用于通知清理线程退出
 
+# ===== 惰性初始化（兼容 gunicorn 多 worker 与开发模式）=====
+# gunicorn 通过 import app 加载，不会执行 if __name__=='__main__' 中的代码。
+# 因此数据库初始化、后台清理线程改为在首个请求到来时惰性启动，保证两种方式都可用。
+_lazy_init_done = False
+_lazy_init_lock = None
+
+
+def _ensure_initialized():
+    """确保数据库已初始化、后台清理线程已启动（线程安全，只执行一次）。
+
+    gunicorn 的每个 worker 进程独立，各自会在首个请求时执行一次初始化。
+    """
+    global _lazy_init_done, _lazy_init_lock
+    if _lazy_init_done:
+        return
+    if _lazy_init_lock is None:
+        _lazy_init_lock = threading.Lock()
+    with _lazy_init_lock:
+        if _lazy_init_done:
+            return
+        try:
+            logger.info("正在初始化数据库...")
+            DatabaseManager.initialize_database()
+            logger.info("数据库初始化完成")
+        except Exception as e:
+            logger.error("数据库初始化失败: %s", e)
+
+        _start_periodic_cleanup()
+        logger.info("后台文件清理任务已启动（间隔 1 小时）")
+
+        _lazy_init_done = True
+
 
 def _do_cleanup_old_files():
     """执行一次文件清理"""
@@ -144,7 +177,6 @@ def _do_cleanup_old_files():
 
 def _start_periodic_cleanup():
     """启动后台定时清理线程（每小时执行一次）"""
-    import threading
     global _cleanup_event
     _cleanup_event = threading.Event()
 
@@ -152,6 +184,11 @@ def _start_periodic_cleanup():
         while not _cleanup_event.wait(3600):  # 每小时检查一次
             try:
                 _do_cleanup_old_files()
+            except Exception:
+                pass
+            # 清理过期的登录尝试记录，防止表无限膨胀（数据库 DoS 防护）
+            try:
+                DatabaseManager.cleanup_old_login_attempts(retention_hours=24)
             except Exception:
                 pass
 
@@ -168,8 +205,11 @@ def _stop_periodic_cleanup():
 
 @app.before_request
 def before_request():
-    """请求前处理：CSRF 校验 + IP 黑名单检查 + 记录开始时间 + 生成 CSP nonce"""
-    # 0. 提前生成 CSP nonce（模板渲染发生在 after_request 之前）
+    """请求前处理：惰性初始化 + CSRF 校验 + IP 黑名单检查 + 记录开始时间 + 生成 CSP nonce"""
+    # 0. 惰性初始化（首次请求时建表并启动后台清理线程；gunicorn/开发模式均适用）
+    _ensure_initialized()
+
+    # 0.5 提前生成 CSP nonce（模板渲染发生在 after_request 之前）
     import secrets
     from flask import g
     g.csp_nonce = secrets.token_hex(16)
@@ -211,17 +251,24 @@ def after_request(response):
         if not cdn_host:
             cdn_host = 'cdn.staticfile.org'
         cdn_src = f'https://{cdn_host}'
-        # 生成 CSP nonce，用于内联脚本和样式
-        # 注意：nonce 已在 before_request 中生成并存入 g.csp_nonce，此处直接使用
-        from flask import g
-        nonce = g.get('csp_nonce', '')
+        # 注意：script-src / style-src 中保留 'unsafe-inline'，并且**不能再带 nonce**。
+        # 模板大量使用内联 style="..." 属性与 onclick/onchange 等内联事件处理器，
+        # 这些属于 HTML 属性而非 <style>/<script> 标签，nonce 无法放行，
+        # 必须靠 'unsafe-inline'。
+        # CSP 规范：一旦 source list 中出现 nonce 或 hash，浏览器会**忽略** 'unsafe-inline'，
+        # 导致内联属性依然被拦截，页面所有默认隐藏区域会被错误显示出来。
         response.headers['Content-Security-Policy'] = (
             f"default-src 'self'; "
-            f"script-src 'self' 'nonce-{nonce}' {cdn_src} https://cdn.jsdelivr.net; "
-            f"style-src 'self' 'nonce-{nonce}' {cdn_src} https://cdn.jsdelivr.net; "
-            f"img-src 'self' data: https:; "
+            f"script-src 'self' 'unsafe-inline' {cdn_src} https://cdn.jsdelivr.net; "
+            f"style-src 'self' 'unsafe-inline' {cdn_src} https://cdn.jsdelivr.net; "
+            # 文件预览使用 blob: URL（本地图片/PDF），需在对应指令放行 blob:
+            # - img-src blob:   支持本地图片预览（previewFile 用 URL.createObjectURL）
+            # - frame-src blob: 支持 iframe 内嵌本地 PDF（Chrome 内置 PDF 查看器走 frame-src）
+            # 保留 object-src 'none'，禁止外部插件加载，降低风险
+            f"img-src 'self' data: blob: https:; "
             f"font-src 'self' {cdn_src} https://cdn.jsdelivr.net data:; "
             f"connect-src 'self' https:; "
+            f"frame-src 'self' blob:; "
             f"object-src 'none'; "
             f"base-uri 'self'; "
             f"frame-ancestors 'none'"
@@ -292,13 +339,8 @@ def server_error(e):
 
 
 if __name__ == '__main__':
-    logger.info("正在初始化数据库...")
-    DatabaseManager.initialize_database()
-    logger.info("数据库初始化完成")
-
-    # 启动后台定时文件清理（每小时执行一次）
-    _start_periodic_cleanup()
-    logger.info("后台文件清理任务已启动（间隔 1 小时）")
+    # 开发模式：与 gunicorn 一致，走惰性初始化（建表 + 启动后台清理线程）
+    _ensure_initialized()
 
     debug_mode = os.environ.get('FLASK_DEBUG', '0') == '1'
     # 公网部署必须：bind 仅本地回环，由 Cloudflare Tunnel / Nginx 反代对外。

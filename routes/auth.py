@@ -3,7 +3,7 @@ import time
 from flask import Blueprint, render_template, request, redirect, url_for, session, flash, jsonify
 from database.db_manager import DatabaseManager
 from utils.mail import send_verify_code
-from utils import check_rate_limit, get_client_ip
+from utils import check_rate_limit, get_client_ip, validate_verify_code
 from utils.logger import get_logger
 from config import Config
 
@@ -79,6 +79,8 @@ def api_send_verify_code():
     session['verify_code_email'] = email
     session['verify_code_time'] = now
     session['verify_code_send_time'] = now
+    # 重新发送时重置尝试计数（新验证码给新的尝试机会）
+    session['verify_code_attempts'] = 0
 
     return jsonify({'success': True, 'message': '验证码已发送，请查收'})
 
@@ -171,33 +173,12 @@ def register():
             flash(pw_msg, 'error')
             return render_template('register.html', form=form_data)
 
-        # 邮箱验证码校验
+        # 邮箱验证码校验（带尝试次数限制 + 锁定，防暴力破解）
         saved_code = session.get('verify_code')
-        saved_email = session.get('verify_code_email')
-        code_time = session.get('verify_code_time', 0)
-        now = int(time.time())
-
-        if not saved_code:
-            flash('请先获取邮箱验证码', 'error')
+        code_ok, code_msg = validate_verify_code(verify_code_input, saved_code, email)
+        if not code_ok:
+            flash(code_msg, 'error')
             return render_template('register.html', form=form_data)
-        if email != saved_email:
-            flash('邮箱与验证码不匹配，请重新获取', 'error')
-            return render_template('register.html', form=form_data)
-        if now - code_time > Config.VERIFY_CODE_EXPIRE:
-            flash('验证码已过期，请重新获取', 'error')
-            session.pop('verify_code', None)
-            session.pop('verify_code_email', None)
-            session.pop('verify_code_time', None)
-            return render_template('register.html', form=form_data)
-        if verify_code_input != saved_code:
-            flash('验证码错误', 'error')
-            return render_template('register.html', form=form_data)
-
-        # 验证通过，清除验证码
-        session.pop('verify_code', None)
-        session.pop('verify_code_email', None)
-        session.pop('verify_code_time', None)
-        session.pop('verify_code_send_time', None)
 
         success, msg = DatabaseManager.register_user(username, email, password)
         if success:
@@ -233,33 +214,12 @@ def forgot_password():
             flash(pw_msg, 'error')
             return render_template('forgot_password.html', form={'email': email})
 
-        # 验证码校验
+        # 验证码校验（带尝试次数限制 + 锁定，防暴力破解）
         saved_code = session.get('verify_code')
-        saved_email = session.get('verify_code_email')
-        code_time = session.get('verify_code_time', 0)
-        now = int(time.time())
-
-        if not saved_code:
-            flash('请先获取邮箱验证码', 'error')
+        code_ok, code_msg = validate_verify_code(verify_code_input, saved_code, email)
+        if not code_ok:
+            flash(code_msg, 'error')
             return render_template('forgot_password.html', form={'email': email})
-        if email != saved_email:
-            flash('邮箱与验证码不匹配，请重新获取', 'error')
-            return render_template('forgot_password.html', form={'email': email})
-        if now - code_time > Config.VERIFY_CODE_EXPIRE:
-            flash('验证码已过期，请重新获取', 'error')
-            session.pop('verify_code', None)
-            session.pop('verify_code_email', None)
-            session.pop('verify_code_time', None)
-            return render_template('forgot_password.html', form={'email': email})
-        if verify_code_input != saved_code:
-            flash('验证码错误', 'error')
-            return render_template('forgot_password.html', form={'email': email})
-
-        # 清除验证码
-        session.pop('verify_code', None)
-        session.pop('verify_code_email', None)
-        session.pop('verify_code_time', None)
-        session.pop('verify_code_send_time', None)
 
         success, msg = DatabaseManager.reset_password(email, new_password)
         if success:

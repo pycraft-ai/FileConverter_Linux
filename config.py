@@ -44,6 +44,17 @@ class Config:
     DB_POOL_SIZE = int(os.environ.get('DB_POOL_SIZE', 10))
     FILE_CLEANUP_TTL = 1 * 24 * 3600  # 文件清理TTL（秒），改为7天以支持历史记录下载
 
+    # ===== 文件 DoS 防护 =====
+    # PDF 最大允许页数（防止超大 PDF 渲染/OCR 拖垮服务器）
+    PDF_MAX_PAGES = int(os.environ.get('PDF_MAX_PAGES', 200))
+    # 解压炸弹防护：解压后单文件/总大小/文件数上限（防止 zip 炸弹填满磁盘）
+    ARCHIVE_MAX_TOTAL_BYTES = int(os.environ.get('ARCHIVE_MAX_TOTAL_BYTES', 2 * 1024 * 1024 * 1024))  # 2GB 总大小
+    ARCHIVE_MAX_FILES = int(os.environ.get('ARCHIVE_MAX_FILES', 1000))  # 最多文件数
+    # 单张图片最大像素数（宽*高，防止超大图片 OOM）
+    IMAGE_MAX_PIXELS = int(os.environ.get('IMAGE_MAX_PIXELS', 5000 * 5000))
+    # 单个目录模式下最多处理的图片数量（如图片转PDF/PPT，上限100）
+    IMAGE_MAX_COUNT = int(os.environ.get('IMAGE_MAX_COUNT', 100))
+
     # ---- 游客模式 ----
     # 未登录游客可免费体验的转换次数（默认 1 次），用完提示登录解锁更多权益
     GUEST_MAX_TIMES = int(os.environ.get('GUEST_MAX_TIMES', 1))

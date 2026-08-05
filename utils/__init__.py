@@ -17,6 +17,72 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 
 # ==============================
+# 验证码校验（防暴力破解）
+# ==============================
+
+def validate_verify_code(input_code, expected_code, email, max_attempts=5):
+    """
+    校验邮箱验证码，带尝试次数限制和锁定，防暴力破解。
+
+    - 尝试次数存于 session，防止无限重试 6 位数字验证码。
+    - 超过 max_attempts 次错误后锁定，直到重新获取新验证码才解锁。
+    - 校验成功后清除计数。
+
+    Args:
+        input_code: 用户输入的验证码
+        expected_code: 期望的验证码（session 中保存的）
+        email: 用户提交的邮箱（用于比对 session 中绑定的邮箱）
+        max_attempts: 最大允许尝试次数（默认 5）
+
+    Returns:
+        (success: bool, error_message: str)
+        success=True 表示通过；False 时 error_message 为错误原因。
+    """
+    from config import Config
+
+    saved_email = session.get('verify_code_email')
+    code_time = session.get('verify_code_time', 0)
+    now = int(time.time())
+
+    # 未获取过验证码
+    if not expected_code:
+        return False, '请先获取邮箱验证码'
+
+    # 邮箱不匹配
+    if not saved_email or email != saved_email:
+        return False, '邮箱与验证码不匹配，请重新获取'
+
+    # 验证码过期
+    if now - code_time > Config.VERIFY_CODE_EXPIRE:
+        _clear_verify_code_session()
+        return False, '验证码已过期，请重新获取'
+
+    # 尝试次数限制
+    attempts = int(session.get('verify_code_attempts', 0))
+    if attempts >= max_attempts:
+        _clear_verify_code_session()
+        return False, '验证码错误次数过多，请重新获取'
+
+    # 比对验证码（常量时间比较，防时序攻击）
+    if not secrets.compare_digest(str(input_code or ''), str(expected_code)):
+        session['verify_code_attempts'] = attempts + 1
+        session.modified = True
+        remaining = max_attempts - attempts - 1
+        return False, f'验证码错误，还可尝试 {remaining} 次'
+
+    # 校验通过，清除验证码及计数
+    _clear_verify_code_session()
+    return True, ''
+
+
+def _clear_verify_code_session():
+    """清除 session 中的验证码相关字段"""
+    for key in ('verify_code', 'verify_code_email', 'verify_code_time',
+                'verify_code_send_time', 'verify_code_attempts'):
+        session.pop(key, None)
+
+
+# ==============================
 # CSRF 防护
 # ==============================
 
@@ -127,26 +193,32 @@ def get_client_ip():
     has_cf_header = bool(request.headers.get('CF-IPCountry'))
 
     trust_cf = bool(Config.TRUST_CF_CONNECTING_IP)
-    trust_remote = bool(request.remote_addr and request.remote_addr in Config.TRUSTED_PROXY_IPS)
+    # 请求是否确实来自可信代理（Cloudflare 边缘 / 隧道出口 / 反向代理）。
+    # 只有 remote_addr 在白名单内，才能证明本次连接是代理主动建立的，
+    # 此时其携带的 CF-Connecting-IP / X-Forwarded-For 头才可信。
+    from_trusted_proxy = bool(request.remote_addr and request.remote_addr in Config.TRUSTED_PROXY_IPS)
 
-    # 无条件信任 CF 头（cloudflared 与 Flask 同机部署且仅通过隧道暴露）
-    if trust_cf:
+    # 关键安全约束：信任代理头（含 CF-Connecting-IP）的前提是请求来自可信代理。
+    # 若应用被直接暴露到公网（remote_addr 为外部 IP，不在白名单），
+    # 攻击者可伪造 CF-Connecting-IP / X-Forwarded-For 头绕过 IP 黑名单与限流，
+    # 因此必须无条件回退到 remote_addr，绝不采纳任何客户端可控头。
+    if trust_cf and from_trusted_proxy:
         for _, ip in candidates:
             if not _is_loopback_or_private(ip):
                 return ip
-        # 兜底：如果 CF 头存在但取到的是回环/内网地址，说明透传有问题
-        # 此时仍返回 CF 头的原始值，交由上层定位逻辑判断；同时若只有回环地址则回退 remote_addr
+        # 兜底：CF 头存在但取到的是回环/内网地址，说明透传有问题，回退到 remote_addr
         if candidates:
             return candidates[0][1]
 
-    # 只有来自可信代理的请求才信任代理头
-    if trust_remote or has_cf_header:
+    # 只有来自可信代理的请求才信任 X-Forwarded-For 等代理头
+    if from_trusted_proxy:
         for _, ip in candidates:
             if not _is_loopback_or_private(ip):
                 return ip
         if candidates:
             return candidates[0][1]
 
+    # 公网直连或来源不可信：忽略全部客户端可控头，使用真实 TCP 对端地址
     return request.remote_addr or '0.0.0.0'
 
 
@@ -465,6 +537,50 @@ def _validate_ole2(filepath, ext):
             return False, f'文件包含 VBA 宏代码，存在安全风险，已拒绝'
 
     return True, ''
+
+
+def validate_pdf_page_count(filepath: str, max_pages: int = None) -> tuple[bool, int]:
+    """
+    校验 PDF 页数是否在允许范围内，防止超大 PDF 导致 DoS。
+
+    Returns:
+        (is_valid: bool, page_count: int)
+    """
+    from config import Config
+    max_pages = Config.PDF_MAX_PAGES if max_pages is None else max_pages
+    try:
+        from PyPDF2 import PdfReader
+        reader = PdfReader(filepath)
+        page_count = len(reader.pages)
+        if page_count > max_pages:
+            return False, page_count
+        return True, page_count
+    except Exception:
+        # 无法解析页数时保守拒绝（防止绕过）
+        return False, 0
+
+
+def validate_image_dimensions(filepath: str, max_pixels: int = None) -> tuple[bool, tuple]:
+    """
+    校验图片尺寸（宽*高）是否在允许范围内，防止超大图片 OOM。
+
+    Returns:
+        (is_valid: bool, (width, height) or None)
+    """
+    from config import Config
+    max_pixels = Config.IMAGE_MAX_PIXELS if max_pixels is None else max_pixels
+    try:
+        from PIL import Image
+        # 只读取头部信息，不加载全部像素数据（防 OOM）
+        with Image.open(filepath) as img:
+            width, height = img.size
+            pixels = width * height
+            if pixels > max_pixels:
+                return False, (width, height)
+            return True, (width, height)
+    except Exception:
+        # 无法读取图片尺寸时保守拒绝（防止绕过）
+        return False, None
 
 
 def validate_file_extension_extended(filename: str, filepath: str, expected_ext: str) -> tuple[bool, str]:

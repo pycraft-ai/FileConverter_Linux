@@ -1,4 +1,5 @@
 flask
+gunicorn
 mysql-connector-python
 pandas
 pytesseract
