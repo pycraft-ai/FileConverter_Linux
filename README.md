@@ -192,6 +192,23 @@ nohup ./start.sh > logs/gunicorn.log 2>&1 &
 
 > 说明：数据库建表和后台文件/登录记录清理任务会在首个请求到达时惰性启动（gunicorn 多 worker 下每个 worker 各自执行一次，幂等安全）。
 
+## 第二种部署方案（Docker）
+
+除直接部署外，本项目还提供一套独立的 **Docker 部署方案**（可选，不影响主方案）。
+
+Docker 相关文件统一放在 **`docker/` 子目录**，与 Linux 主方案完全分离。使用方式：
+
+```bash
+cd docker
+docker compose up -d --build
+```
+
+- 包含 `db`（MySQL 8.0）+ `app`（Flask + Gunicorn，内置 LibreOffice/OCR/字体）两个容器
+- 复用项目根目录同一份 `.env` 配置（单一来源）
+- `uploads/`、`outputs/`、`logs/` 通过卷映射到项目根目录
+
+详细说明见 **[`docker/README.md`](docker/README.md)**。
+
 ## 配置说明
 
 编辑 `.env` 文件：
@@ -252,6 +269,11 @@ nohup ./start.sh > logs/gunicorn.log 2>&1 &
 ├── gunicorn.conf.py           # Gunicorn 生产部署配置
 ├── requirements               # Python 依赖清单
 ├── start.sh                   # 启动脚本（默认 gunicorn，MODE=dev 走 Flask 调试）
+├── docker/                    # 【第二种部署方案】Docker（独立于 Linux 主方案）
+│   ├── Dockerfile             # 镜像构建（LibreOffice/OCR/字体）
+│   ├── docker-compose.yml     # db + app 容器编排
+│   ├── .dockerignore          # 构建忽略规则
+│   └── README.md              # Docker 部署使用说明
 ├── converter/
 │   ├── __init__.py
 │   └── converter_engine.py    # 核心转换引擎（LibreOffice、OCR、PDF、图片、压缩等）

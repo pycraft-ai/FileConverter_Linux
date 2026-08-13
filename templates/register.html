@@ -57,7 +57,15 @@
                     <div class="input-group input-group-glass">
                         <span class="input-group-text"><i class="fas fa-lock"></i></span>
                         <input type="password" class="form-control" id="password"
-                               name="password" required placeholder="请输入密码">
+                               name="password" value="{{ form.password }}" required placeholder="请输入密码"
+                               autocomplete="new-password">
+                    </div>
+                    <!-- 实时密码强度清单 -->
+                    <div class="pw-check mt-2" id="pwCheck">
+                        <div class="pw-item" data-rule="length"><i class="fas fa-circle"></i> 至少 8 个字符</div>
+                        <div class="pw-item" data-rule="upper"><i class="fas fa-circle"></i> 包含大写字母（A-Z）</div>
+                        <div class="pw-item" data-rule="lower"><i class="fas fa-circle"></i> 包含小写字母（a-z）</div>
+                        <div class="pw-item" data-rule="digit"><i class="fas fa-circle"></i> 包含数字（0-9）</div>
                     </div>
                 </div>
                 <div class="mb-4">
@@ -67,7 +75,8 @@
                     <div class="input-group input-group-glass">
                         <span class="input-group-text"><i class="fas fa-check"></i></span>
                         <input type="password" class="form-control" id="confirm_password"
-                               name="confirm_password" required placeholder="请再次输入密码">
+                               name="confirm_password" value="{{ form.confirm_password }}" required placeholder="请再次输入密码"
+                               autocomplete="new-password">
                     </div>
                 </div>
                 <button type="submit" class="btn btn-gradient w-100 btn-lg"
@@ -89,4 +98,5 @@
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/verify-code.js') }}"></script>
+<script src="{{ url_for('static', filename='js/password-check.js') }}?v=2"></script>
 {% endblock %}

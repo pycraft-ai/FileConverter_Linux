@@ -140,12 +140,16 @@ def login():
             logger.warning("用户登录失败 | user=%s ip=%s reason=%s", username, client_ip, msg)
             flash(msg, 'error')
 
-    return render_template('login.html')
+    # 渲染登录页后清除自动填充数据，避免密码长期留在 session 中
+    template = render_template('login.html')
+    session.pop('prefill_username', None)
+    session.pop('prefill_password', None)
+    return template
 
 
 @auth_bp.route('/register', methods=['GET', 'POST'])
 def register():
-    form_data = {'username': '', 'email': '', 'verify_code': ''}
+    form_data = {'username': '', 'email': '', 'verify_code': '', 'password': '', 'confirm_password': ''}
 
     if request.method == 'POST':
         username = request.form.get('username', '').strip()
@@ -154,7 +158,10 @@ def register():
         confirm_password = request.form.get('confirm_password', '')
         verify_code_input = request.form.get('verify_code', '').strip()
 
-        form_data = {'username': username, 'email': email, 'verify_code': verify_code_input}
+        form_data = {
+            'username': username, 'email': email, 'verify_code': verify_code_input,
+            'password': password, 'confirm_password': confirm_password
+        }
 
         # 基础校验
         if not username or not password:
@@ -183,6 +190,9 @@ def register():
         success, msg = DatabaseManager.register_user(username, email, password)
         if success:
             logger.info("用户注册成功 | user=%s email=%s", username, email)
+            # 将账号密码存入 session，用于登录页自动填充（登录成功后即清除）
+            session['prefill_username'] = username
+            session['prefill_password'] = password
             flash('注册成功，请登录', 'success')
             return redirect(url_for('auth.login'))
         else:

@@ -20,7 +20,8 @@
                     <div class="input-group input-group-glass">
                         <span class="input-group-text"><i class="fas fa-user"></i></span>
                         <input type="text" class="form-control" id="username"
-                               name="username" required autofocus placeholder="请输入用户名或邮箱">
+                               name="username" value="{{ session.get('prefill_username', '') }}"
+                               required autofocus placeholder="请输入用户名或邮箱">
                     </div>
                 </div>
                 <div class="mb-3">
@@ -30,7 +31,8 @@
                     <div class="input-group input-group-glass">
                         <span class="input-group-text"><i class="fas fa-lock"></i></span>
                         <input type="password" class="form-control" id="password"
-                               name="password" required placeholder="请输入密码">
+                               name="password" value="{{ session.get('prefill_password', '') }}"
+                               required placeholder="请输入密码">
                     </div>
                 </div>
                 <div class="mb-4">

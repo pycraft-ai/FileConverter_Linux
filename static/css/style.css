@@ -1565,3 +1565,55 @@ body {
         font-size: 1rem;
     }
 }
+
+/* ========== 注册页：实时密码强度清单 ========== */
+.pw-check {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--bg-input);
+    font-size: 12px;
+}
+
+.pw-check .pw-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 10px;
+    border-radius: 6px;
+    color: var(--text-secondary);
+    transition: background-color .2s ease, color .2s ease;
+}
+
+.pw-check .pw-item i {
+    width: 14px;
+    text-align: center;
+    font-size: 11px;
+    color: var(--text-muted);
+    transition: color .2s ease;
+}
+
+/* 满足条件：绿色背景 */
+.pw-check .pw-item.ok {
+    background: rgba(16, 185, 129, 0.18);
+    border: 1px solid rgba(16, 185, 129, 0.45);
+    color: #0f9d6e;
+}
+
+.pw-check .pw-item.ok i {
+    color: #10b981;
+}
+
+/* 不满足条件：红色背景 */
+.pw-check .pw-item.no {
+    background: rgba(239, 68, 68, 0.18);
+    border: 1px solid rgba(239, 68, 68, 0.45);
+    color: #dc2626;
+}
+
+.pw-check .pw-item.no i {
+    color: #ef4444;
+}

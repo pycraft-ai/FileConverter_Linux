@@ -526,8 +526,17 @@ class DatabaseManager:
 
     @staticmethod
     def register_user(username, email, password, is_admin=False,
-                      is_block=False, expiration_days=30):
-        """注册新用户（使用 werkzeug 密码哈希）"""
+                      is_block=False, expiration_days=None, remaining_times=None):
+        """注册新用户（使用 werkzeug 密码哈希）
+
+        expiration_days: 有效期天数，默认取 Config.USER_EXPIRATION
+        remaining_times: 初始可用次数，默认取 Config.USER_REMAINING_TIMES
+        """
+        # 默认值取配置（调用方未显式传入时）
+        if expiration_days is None:
+            expiration_days = Config.USER_EXPIRATION
+        if remaining_times is None:
+            remaining_times = Config.USER_REMAINING_TIMES
         conn = None
         try:
             conn = DatabaseManager.get_connection()
@@ -561,7 +570,7 @@ class DatabaseManager:
                      expiration_date, remaining_times)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
                     (username, email, password_hash, '', is_admin,
-                     is_block, expiration_date, 20)
+                     is_block, expiration_date, remaining_times)
                 )
 
                 conn.commit()

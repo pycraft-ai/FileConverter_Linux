@@ -20,7 +20,7 @@
     <!-- 关键CSS同步加载（国内 CDN） -->
     <link href="{{ CDN_BASE_URL }}/twitter-bootstrap/5.3.2/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="{{ CDN_BASE_URL }}/font-awesome/6.4.2/css/all.min.css">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=2">
     <!-- 字体：使用系统字体栈，避免 Google Fonts 国内加载慢 -->
     <style nonce="{{ g.get('csp_nonce', '') }}">
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }

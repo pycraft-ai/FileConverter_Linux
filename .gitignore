@@ -52,3 +52,5 @@ flask_output.log
 # 所有测试类文件
 test_*.py
 .pytest_cache
+
+docker/

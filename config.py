@@ -21,8 +21,9 @@ class Config:
     }
 
     # MySQL 数据库配置（添加连接超时和自动重连）
+    # DB_HOST: 本机直接部署默认 localhost（socket 连接）；Docker 内设为 MySQL 服务名 db
     DB_CONFIG = {
-        'host': 'localhost',
+        'host': os.getenv('DB_HOST', 'localhost'),
         'port': int(os.getenv('DB_PORT', 3306)),
         'user': os.getenv('DB_ACCOUNT'),
         'password': os.getenv('DB_PASSWORD'),
@@ -58,6 +59,12 @@ class Config:
     # ---- 游客模式 ----
     # 未登录游客可免费体验的转换次数（默认 1 次），用完提示登录解锁更多权益
     GUEST_MAX_TIMES = int(os.environ.get('GUEST_MAX_TIMES', 1))
+
+    # ---- 新用户默认配置 ----
+    # 新注册用户的默认可用次数（默认 20 次）
+    USER_REMAINING_TIMES = int(os.environ.get('USER_REMAINING_TIMES', 20))
+    # 新注册用户默认有效期（天，默认 30 天）
+    USER_EXPIRATION = int(os.environ.get('USER_EXPIRATION', 30))
 
     # ---- 游客防滥用（IP 维度限流）----
     # 注意：游客次数存在 session cookie，可通过无痕浏览/清 cookie 绕过。

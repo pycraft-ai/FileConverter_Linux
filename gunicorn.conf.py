@@ -7,9 +7,12 @@ import os
 from dotenv import load_dotenv
 load_dotenv()
 
-# 绑定仅本地回环地址（由 Cloudflare Tunnel / Nginx 反代对外）。
-# 切勿绑定 0.0.0.0 直连公网，否则攻击者可伪造 CF-Connecting-IP 绕过 IP 黑名单。
-bind = '127.0.0.1:' + os.environ.get('PORT', '5000')
+# 绑定地址（由 Cloudflare Tunnel / Nginx 反代对外）。
+# 默认仅本地回环，切勿绑定 0.0.0.0 直连公网，
+# 否则攻击者可伪造 CF-Connecting-IP 绕过 IP 黑名单。
+# Docker 容器内用 BIND_HOST=0.0.0.0 覆盖，让 cloudflared（同容器网络）能访问。
+bind_host = os.environ.get('BIND_HOST', '127.0.0.1')
+bind = f'{bind_host}:' + os.environ.get('PORT', '5000')
 
 # worker 数量：使用 gthread + 多线程模型，无需过多 worker。
 # worker_class='gthread' 下每个 worker 可并发处理 threads 个请求，
