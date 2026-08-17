@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#667eea"/>
+      <stop offset="1" stop-color="#764ba2"/>
+    </linearGradient>
+  </defs>
+  <!-- 圆角方形背景 -->
+  <rect x="4" y="4" width="56" height="56" rx="14" fill="url(#g)"/>
+  <!-- 左侧文档 -->
+  <rect x="15" y="16" width="14" height="32" rx="3" fill="#ffffff" fill-opacity="0.95"/>
+  <rect x="19" y="23" width="6" height="2.5" rx="1.25" fill="#764ba2"/>
+  <rect x="19" y="29" width="6" height="2.5" rx="1.25" fill="#a78bfa"/>
+  <rect x="19" y="35" width="6" height="2.5" rx="1.25" fill="#a78bfa"/>
+  <!-- 右侧文档 -->
+  <rect x="35" y="16" width="14" height="32" rx="3" fill="#ffffff"/>
+  <rect x="39" y="23" width="6" height="2.5" rx="1.25" fill="#764ba2"/>
+  <rect x="39" y="29" width="6" height="2.5" rx="1.25" fill="#a78bfa"/>
+  <rect x="39" y="35" width="6" height="2.5" rx="1.25" fill="#a78bfa"/>
+  <!-- 双向转换箭头 -->
+  <path d="M26 26 L38 38" stroke="#ffffff" stroke-width="4" stroke-linecap="round" fill="none"/>
+  <path d="M29 36 L38 38 L35 29" stroke="#ffffff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <path d="M35 28 L26 26 L29 35" stroke="#ffffff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+</svg>

@@ -6,7 +6,28 @@
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <meta name="is-admin" content="{{ 'true' if session.get('is_admin') else 'false' }}">
     <meta name="has-user" content="{{ 'true' if session.get('username') else 'false' }}">
-    <title>{% block title %}文件转化工具{% endblock %}</title>
+    <title>{% block title %}FileConverter 文件转换工具 - 在线免费 PDF/Word/Excel/PPT 互转与 OCR 识别{% endblock %}</title>
+    <!-- ===== 站点图标（favicon，base64 内联最可靠，绕开缓存/CDN/CSP 问题）===== -->
+    <link rel="icon" type="image/png" sizes="48x48" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAAwCAYAAABXAvmHAAABIElEQVR4nO2ZUQ7CIAyGgXgFd0S9hcbdwh3RHUKfSEgHXQtjtLHfI6Xx/2lLiPMO4fb4fLH4WSzz5EuxbECKcEjOSIALUsU7l9cW9jZIA2oMpYBkUq0BLmghat7MgDa8xtNPUV8BMzAaMzCaCzfh/bqS9t2f66G5JVgVoArI7W3JxVDfQmZgNOwhjpQGjdK/LbmQqgpgt0Qaywmi5lKpMoCd1N7tw8mlUN1CNT92RC7klCE+UjDEhpgTa83N0XWIue8hG+Ie1LQFh+oKUOh5+0TUv4W6GujdPs6dNAM9jVgLjea/DHB6Ge5tycWwP3dHYwZGo98A9hFZOss8ef0VcA7/lC+VqDnABQ2kWkMpIBWocTMDkk3ktKFipTwzsEP9ARorfPVsqcx2AAAAAElFTkSuQmCC">
+    <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon.png') }}">
+    <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='favicon.png') }}">
+    <!-- ===== SEO 简介 ===== -->
+    <meta name="description" content="FileConverter 是一款免费在线文件转换工具，支持 28 种转换模式：Word/Excel/PPT 与 PDF 互转、PDF 合并/压缩/分割/加密、PDF 与图片 OCR 文字识别、图片格式互转与压缩、文件压缩解压等。无需注册即可游客体验，登录解锁更多功能，所有文件安全自动清理。">
+    <meta name="keywords" content="文件转换,在线转换,PDF转Word,Word转PDF,Excel转PDF,PDF合并,PDF压缩,OCR识别,图片转PDF,免费文件转换工具">
+    <meta name="author" content="FileConverter">
+    <meta name="robots" content="index, follow">
+    <meta name="theme-color" content="#667eea">
+    <!-- ===== Open Graph / Twitter Card（分享到社交平台显示简介与图标）===== -->
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="FileConverter 文件转换工具">
+    <meta property="og:title" content="FileConverter 文件转换工具 - 在线免费格式转换">
+    <meta property="og:description" content="免费在线文件格式转换，支持 Office/PDF/图片/OCR/压缩等 28 种转换模式，无需安装，浏览器直接使用。">
+    <meta property="og:image" content="{{ request.url_root.rstrip('/') }}{{ url_for('static', filename='favicon.png') }}">
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="FileConverter 文件转换工具">
+    <meta name="twitter:description" content="免费在线文件格式转换，支持 Office/PDF/图片/OCR/压缩等 28 种转换模式。">
+    <meta name="twitter:image" content="{{ request.url_root.rstrip('/') }}{{ url_for('static', filename='favicon.png') }}">
     <!-- 预防主题闪烁：在 CSS 加载前同步设置 data-theme -->
     <script nonce="{{ g.get('csp_nonce', '') }}">
     (function(){
@@ -320,7 +341,7 @@
         <div class="nb-brand">
             <a href="{{ url_for('converter.index') }}" style="display:flex;align-items:center;gap:10px;text-decoration:none;">
                 <div class="nb-brand-icon"><i class="fas fa-file-alt"></i></div>
-                <span class="nb-brand-text">文件转化工具</span>
+                <span class="nb-brand-text">FileConverter 文件转换工具</span>
             </a>
         </div>
         <div class="nb-right">
@@ -345,7 +366,7 @@
     <nav class="top-navbar guest-navbar">
         <div class="nb-brand">
             <div class="nb-brand-icon"><i class="fas fa-user-secret"></i></div>
-            <span class="nb-brand-text">文件转化工具 · 游客体验</span>
+            <span class="nb-brand-text">FileConverter 文件转换工具 · 游客体验</span>
         </div>
         <div class="nb-right">
             <span class="guest-tip">
@@ -420,7 +441,7 @@
             <button class="mobile-menu-btn" id="mobileMenuBtn">
                 <i class="fas fa-bars"></i>
             </button>
-            <span class="mobile-brand">文件转化工具</span>
+            <span class="mobile-brand">FileConverter</span>
             <button class="mobile-theme-btn" id="mobileThemeBtn" title="切换主题">
                 <i class="fas fa-palette"></i>
             </button>

@@ -1,4 +1,4 @@
-from flask import Flask, request, abort
+from flask import Flask, request, abort, send_from_directory, send_file
 from config import Config
 from database.db_manager import DatabaseManager
 from utils import generate_csrf_token, validate_csrf, get_client_ip, setup_logger, get_logger
@@ -326,6 +326,55 @@ def _log_access(data):
         )
     except Exception as e:
         logger.error("异步记录IP访问日志失败: %s", e)
+
+
+@app.route('/favicon.ico')
+def favicon():
+    """根路径 favicon 兜底（浏览器会主动请求 /favicon.ico，不走 /static/）。"""
+    return send_from_directory(
+        os.path.join(app.static_folder, ''),
+        'favicon.ico',
+        mimetype='image/x-icon',
+        max_age=86400,  # 1 天缓存；CDN/浏览器自身会再缓存
+    )
+
+
+# ===== 站点所有权验证文件（白名单机制）=====
+# 用于 Bing / Google / 百度等站长平台的站点验证文件。
+# 直接把验证文件放到项目根目录，BingSiteAuth.xml 等会自动被映射到根路径。
+# 严格白名单：仅允许已知的验证文件名，防止任意文件泄露。
+_VERIFICATION_FILE_WHITELIST = {
+    'BingSiteAuth.xml',                  # Bing 站长工具
+    'google-site-verification.html',     # Google 部分验证方式
+}
+# 百度验证文件名以前缀 baidu_verify_ 开头、以 .html 结尾（实际文件名由百度随机生成，无法枚举）
+_BAIDU_VERIFY_PREFIX = 'baidu_verify_'
+
+
+@app.route('/<path:filename>')
+def site_verification_file(filename):
+    """根路径静态文件兜底（仅服务于站点所有权验证文件）。
+
+    仅当请求文件名命中白名单、且文件确实存在于项目根目录时，才返回。
+    其他情况一律走 404，保证不暴露项目其他文件。
+    """
+    # 1. 拒绝路径穿越（防止 ../app.py 之类）
+    if '..' in filename or filename.startswith('/') or '\\' in filename:
+        abort(404)
+    # 2. 必须是白名单内的文件名（百度验证文件用前缀匹配）
+    is_whitelisted = (
+        filename in _VERIFICATION_FILE_WHITELIST
+        or (filename.startswith(_BAIDU_VERIFY_PREFIX) and filename.endswith('.html'))
+    )
+    if not is_whitelisted:
+        abort(404)
+    # 3. 文件必须真实存在
+    project_root = os.path.dirname(os.path.abspath(__file__))
+    file_path = os.path.join(project_root, filename)
+    if not os.path.isfile(file_path):
+        abort(404)
+    # 4. serve
+    return send_file(file_path, max_age=300)
 
 
 @app.errorhandler(404)
