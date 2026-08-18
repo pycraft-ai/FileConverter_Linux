@@ -156,6 +156,24 @@ def _ensure_initialized():
         _lazy_init_done = True
 
 
+def _is_plaintext_residual(filepath):
+    """判断文件是否为明文残留（非加密文件）。
+
+    当文件加密功能开启时，正常的落盘文件（上传/输出）都应为 Fernet 密文，
+    其特征是 base64 开头为 'gAAAAA'。若文件不是密文，则属于明文残留，应清理。
+    当加密功能关闭时，文件本就是明文，不视为残留。
+    """
+    try:
+        if not Config.FILE_ENCRYPTION_ENABLED:
+            return False
+        with open(filepath, 'rb') as f:
+            head = f.read(6)
+        # Fernet token 固定以 base64 'gAAAAA' 开头
+        return head != b'gAAAAA'
+    except Exception:
+        return False
+
+
 def _do_cleanup_old_files():
     """执行一次文件清理"""
     import shutil
@@ -167,8 +185,11 @@ def _do_cleanup_old_files():
         for entry in os.listdir(folder):
             entry_path = os.path.join(folder, entry)
             try:
-                if os.path.isfile(entry_path) and now - os.path.getmtime(entry_path) > ttl:
-                    os.remove(entry_path)
+                if os.path.isfile(entry_path):
+                    # 隐私保护：若文件是明文残留（未加密），无论是否超时都立即清除，
+                    # 防止加密功能启用前的旧明文文件在磁盘上滞留。
+                    if _is_plaintext_residual(entry_path) or now - os.path.getmtime(entry_path) > ttl:
+                        os.remove(entry_path)
                 elif os.path.isdir(entry_path) and now - os.path.getmtime(entry_path) > ttl:
                     shutil.rmtree(entry_path, ignore_errors=True)
             except Exception:

@@ -15,6 +15,11 @@ from utils import (
     validate_pdf_page_count, validate_image_dimensions,
 )
 from utils.logger import get_logger
+from utils.encryption import (
+    encrypt_file_in_place, decrypt_in_memory,
+    is_enabled as _encryption_enabled,
+)
+import tempfile
 
 converter_bp = Blueprint('converter', __name__)
 logger = get_logger(__name__)
@@ -254,6 +259,106 @@ def _validate_saved_file(filepath: str, filename: str, mode: str) -> str | None:
     return None
 
 
+# ============================================================
+# 隐私保护辅助函数
+# ============================================================
+
+def safe_remove(path: str):
+    """安全删除文件（忽略错误）。"""
+    if not path:
+        return
+    try:
+        if os.path.isfile(path) or os.path.islink(path):
+            os.remove(path)
+    except Exception:
+        pass
+
+
+def _apply_file_mode(path: str):
+    """收紧单文件权限为 600，防止同机其他用户读取。"""
+    try:
+        os.chmod(path, Config.FILE_MODE)
+    except Exception:
+        pass
+
+
+def _decrypt_inputs(input_paths):
+    """
+    将密文输入解密为临时明文路径列表（供转换引擎使用）。
+
+    支持三种形态：
+      - 单个/多个文件：解密每个文件，返回临时明文文件路径列表；
+      - 目录（图片转pdf/ppt）：在系统临时目录解密出整个明文目录，返回[明文目录]。
+
+    调用方需在 finally 中通过 safe_remove 清理返回的临时路径。
+    """
+    if not _encryption_enabled():
+        # 未开启加密，输入本为明文，直接返回
+        return list(input_paths)
+
+    from utils.encryption import decrypt_to_file
+    result = []
+    for p in input_paths:
+        if os.path.isdir(p):
+            # 解密整个目录为临时明文目录
+            tmp_dir = tempfile.mkdtemp(prefix='fc_plain_')
+            try:
+                for root, _dirs, files in os.walk(p):
+                    for f in files:
+                        src = os.path.join(root, f)
+                        rel = os.path.relpath(src, p)
+                        dst = os.path.join(tmp_dir, rel)
+                        os.makedirs(os.path.dirname(dst), exist_ok=True)
+                        decrypt_to_file(src, dst)
+                        _apply_file_mode(dst)
+            except Exception as e:
+                logger.error("解密目录失败 %s: %s", p, e)
+                safe_remove(tmp_dir)
+                raise
+            result.append(tmp_dir)
+        elif os.path.isfile(p):
+            try:
+                plain = decrypt_to_file(p)
+                _apply_file_mode(plain)
+                result.append(plain)
+            except Exception as e:
+                logger.error("解密输入失败 %s: %s", p, e)
+                raise
+        else:
+            result.append(p)
+    return result
+
+
+def _encrypt_task_outputs(task_id):
+    """
+    加密某次任务在 outputs/ 下产生的所有明文输出文件（就地加密 + 收紧权限）。
+    解压模式会在 outputs/ 下生成以 task_id 开头的子目录，需递归处理其中的所有文件。
+    因此按「顶层条目名以 task_id 开头」定位任务输出，再加密其下全部文件。
+    """
+    if not _encryption_enabled():
+        return
+    output_root = Config.OUTPUT_FOLDER
+    for entry in os.listdir(output_root):
+        entry_path = os.path.join(output_root, entry)
+        if not entry.startswith(task_id):
+            continue
+        # 顶层条目属于本任务，加密其下的所有文件（文件或目录内文件）
+        if os.path.isfile(entry_path):
+            targets = [entry_path]
+        elif os.path.isdir(entry_path):
+            targets = []
+            for root, _dirs, files in os.walk(entry_path):
+                targets.extend(os.path.join(root, f) for f in files)
+        else:
+            continue
+        for full in targets:
+            try:
+                encrypt_file_in_place(full)
+                _apply_file_mode(full)
+            except Exception as e:
+                logger.error("加密输出失败 %s: %s", full, e)
+
+
 def allowed_file(filename, mode):
     """检查文件扩展名是否允许"""
     if '.' not in filename:
@@ -320,6 +425,12 @@ def index():
         login_type='guest',
         announcements=announcements
     )
+
+
+@converter_bp.route('/privacy')
+def privacy():
+    """隐私政策页面（无需登录即可访问）"""
+    return render_template('privacy.html')
 
 
 @converter_bp.route('/convert', methods=['POST'])
@@ -436,10 +547,15 @@ def convert():
                 save_path = os.path.join(Config.UPLOAD_FOLDER, filename)
                 file.save(save_path)
 
-                # 文件保存后内容安全校验
+                # 文件保存后内容安全校验（此时为明文，校验通过后再加密）
                 err = _validate_saved_file(save_path, original_filename, mode)
                 if err:
+                    safe_remove(save_path)
                     return jsonify({'success': False, 'message': err})
+
+                # 隐私保护：校验通过后将文件就地加密，磁盘上只存密文
+                encrypt_file_in_place(save_path)
+                _apply_file_mode(save_path)
 
                 input_paths.append(save_path)
                 original_filenames.append(original_filename)
@@ -467,10 +583,15 @@ def convert():
                 save_path = os.path.join(Config.UPLOAD_FOLDER, filename)
                 file.save(save_path)
 
-                # 文件保存后内容安全校验
+                # 文件保存后内容安全校验（此时为明文，校验通过后再加密）
                 err = _validate_saved_file(save_path, original_filename, mode)
                 if err:
+                    safe_remove(save_path)
                     return jsonify({'success': False, 'message': err})
+
+                # 隐私保护：校验通过后将文件就地加密，磁盘上只存密文
+                encrypt_file_in_place(save_path)
+                _apply_file_mode(save_path)
 
                 input_paths.append(save_path)
                 original_filenames.append(original_filename)
@@ -507,15 +628,15 @@ def convert():
                     save_full_path = os.path.join(dir_path, filename)
                     file.save(save_full_path)
 
-                    # 文件保存后内容安全校验
+                    # 文件保存后内容安全校验（此时为明文，校验通过后再加密）
                     err = _validate_saved_file(save_full_path, original_filename, mode)
                     if err:
-                        try:
-                            os.remove(save_full_path)
-                        except Exception:
-                            pass
+                        safe_remove(save_full_path)
                         continue  # 跳过恶意文件
 
+                    # 隐私保护：校验通过后将文件就地加密
+                    encrypt_file_in_place(save_full_path)
+                    _apply_file_mode(save_full_path)
                     file_count += 1
 
             if file_count == 0:
@@ -535,6 +656,13 @@ def convert():
                         'duplicate_warning': True,
                         'message': '检测到与上次转换文件相同，为避免浪费次数，请确认是否继续转换'
                     })
+
+        # ---- 隐私保护：转换前将密文输入解密为临时明文路径 ----
+        # 上传文件已在磁盘上加密落盘；转换引擎需要明文，故此处解密到临时文件，
+        # 转换完成后在 finally 中删除临时明文，保证明文不在服务器上滞留。
+        _plain_inputs = _decrypt_inputs(input_paths)
+        # 用明文路径替换密文路径，后续所有转换逻辑使用明文
+        input_paths = _plain_inputs
 
         # ---- 执行转换 ----
         result_message = '转换成功'
@@ -1051,6 +1179,11 @@ def convert():
                 else:
                     session['remaining_times'] = remaining_times or session.get('remaining_times', 0)
 
+            # ---- 隐私保护：转换输出的明文结果就地加密落盘 ----
+            # 转换引擎把明文结果写入 outputs/，此处统一加密并收紧权限，
+            # 保证服务器磁盘上不残留明文。下载时在 download 路由解密。
+            _encrypt_task_outputs(task_id)
+
             output_basename = os.path.basename(output_path)
             # 去除 task_id_ 前缀得到显示名
             display_name = output_basename
@@ -1131,6 +1264,14 @@ def convert():
             ip_address=_client_ip
         )
         return jsonify({'success': False, 'message': '服务器处理出错，请稍后重试或联系管理员'})
+    finally:
+        # 隐私保护：无论成功失败，都删除转换用的临时明文文件，防止明文残留
+        try:
+            if '_plain_inputs' in locals():
+                for _p in _plain_inputs:
+                    safe_remove(_p)
+        except Exception:
+            pass
 
 
 @converter_bp.route('/download/<path:filename>')
@@ -1184,7 +1325,18 @@ def download(filename):
 
     # 用 name 参数作为下载显示的文件名（去掉哈希前缀）
     display_name = request.args.get('name') or os.path.basename(filename)
-    return send_file(target, as_attachment=True, download_name=display_name)
+    # 隐私保护：输出文件在磁盘上为密文，下载时解密到内存发送，不落盘明文
+    try:
+        from io import BytesIO
+        data = decrypt_in_memory(target)
+        return send_file(
+            BytesIO(data),
+            as_attachment=True,
+            download_name=display_name,
+        )
+    except Exception as e:
+        logger.error("下载解密失败 | file=%s err=%s", filename, e)
+        return jsonify({'success': False, 'message': '文件无法读取或已损坏'}), 500
 
 
 @converter_bp.route('/contact', methods=['GET', 'POST'])

@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}隐私政策 - FileConverter 文件转换工具{% endblock %}
+
+{# 隐私内容（登录/游客与未登录用户共用，通过两个块分别输出） #}
+{% macro privacy_content() %}
+<div class="container py-4" style="max-width: 880px;">
+    <h2 class="mb-4"><i class="fas fa-shield-halved text-primary me-2"></i>隐私政策</h2>
+    <p class="text-muted">更新日期：2026-08-18</p>
+
+    <div class="card mb-4">
+        <div class="card-header bg-white"><strong>一、我们如何处理您的文件</strong></div>
+        <div class="card-body">
+            <ul class="mb-0">
+                <li>您上传的文件仅用于执行您选择的格式转换，<strong>不会用于任何其他目的</strong>。</li>
+                <li>文件在服务器上以<strong>加密形式存储</strong>，即使服务器被入侵，也无法直接读取文件内容。</li>
+                <li>转换完成后，输出文件同样以加密形式保存，下载时临时解密，不长期残留明文。</li>
+                <li>您上传的原始文件与转换结果会在一定时间后<strong>自动彻底删除</strong>，无需您手动操作。</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header bg-white"><strong>二、文件保留期限</strong></div>
+        <div class="card-body">
+            <p class="mb-0">上传文件与转换结果默认保留 <strong>24 小时</strong>，之后由系统自动清理并永久删除。
+            请务必在期限内下载转换结果。</p>
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header bg-white"><strong>三、我们不收集哪些信息</strong></div>
+        <div class="card-body">
+            <ul class="mb-0">
+                <li>我们<strong>不会</strong>查看、分析、提取或传播您文件中的内容。</li>
+                <li>我们<strong>不会</strong>将您的文件提供给任何第三方。</li>
+                <li>文件转换由本站服务器本地完成，<strong>不会</strong>上传到任何外部 AI / 云服务。</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header bg-white"><strong>四、我们记录哪些信息</strong></div>
+        <div class="card-body">
+            <p class="mb-2">为保障服务安全与正常运行，我们会记录以下技术性信息：</p>
+            <ul class="mb-0">
+                <li>访问日志中的 IP 地址、浏览器类型、访问时间（用于安全防护与防滥用）。</li>
+                <li>转换记录中的<strong>文件名</strong>（用于展示您的历史记录）。</li>
+            </ul>
+            <p class="text-muted small mb-0 mt-2">我们不会记录文件的具体内容。</p>
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header bg-white"><strong>五、传输安全</strong></div>
+        <div class="card-body">
+            <p class="mb-0">本站在公网环境下全程使用 <strong>HTTPS 加密传输</strong>，您在浏览器与服务器之间的文件传输是加密的，
+            防止传输途中被窃听或篡改。</p>
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header bg-white"><strong>六、您的建议</strong></div>
+        <div class="card-body">
+            <p class="mb-0">为最大程度保护您的隐私，我们建议：</p>
+            <ul class="mb-0">
+                <li>请勿上传包含<strong>个人身份证件、账号密码、商业秘密</strong>等高度敏感信息的文件。</li>
+                <li>转换完成后请及时下载结果，并妥善保管。</li>
+            </ul>
+        </div>
+    </div>
+
+    <p class="text-muted small">如有隐私相关问题，欢迎通过「联系作者」页面与我们沟通。</p>
+</div>
+{% endmacro %}
+
+{% block content %}
+{{ privacy_content() }}
+{% endblock %}
+
+{% block guest_content %}
+{{ privacy_content() }}
+{% endblock %}

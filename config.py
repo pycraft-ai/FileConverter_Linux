@@ -43,7 +43,19 @@ class Config:
 
     # 连接池配置
     DB_POOL_SIZE = int(os.environ.get('DB_POOL_SIZE', 10))
-    FILE_CLEANUP_TTL = 1 * 24 * 3600  # 文件清理TTL（秒），改为7天以支持历史记录下载
+    # 文件清理TTL（秒）。原为7天以支持历史记录下载，但为了隐私安全，
+    # 缩短为 1 天（24 小时），降低用户文件在服务器上明文暴露的时间窗口。
+    FILE_CLEANUP_TTL = int(os.environ.get('FILE_CLEANUP_TTL', 24 * 3600))
+
+    # ===== 文件隐私保护 =====
+    # 是否对落盘的用户文件加密（默认开启，设为 0 关闭可回退）
+    FILE_ENCRYPTION_ENABLED = os.environ.get('FILE_ENCRYPTION_ENABLED', '1') == '1'
+    # 加密密钥（Base64 URL-safe 32 字节，用 FILE_ENCRYPTION_KEY 配置）。
+    # 未设置时进程会临时生成，但重启后旧密文将无法解密，强烈建议持久化配置。
+    FILE_ENCRYPTION_KEY = os.environ.get('FILE_ENCRYPTION_KEY')
+    # 落盘文件/目录权限（收紧为 600/700，防止同机其他用户读取用户文件）
+    FILE_MODE = 0o600
+    DIR_MODE = 0o700
 
     # ===== 文件 DoS 防护 =====
     # PDF 最大允许页数（防止超大 PDF 渲染/OCR 拖垮服务器）
@@ -121,6 +133,6 @@ class Config:
     MAIL_PASSWORD = os.environ.get('MAIL_PASSWORD')
     MAIL_USE_SSL = True
 
-    # 确保上传和输出目录存在
-    os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-    os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+    # 确保上传和输出目录存在（收紧目录权限，仅属主可读写执行）
+    os.makedirs(UPLOAD_FOLDER, exist_ok=True, mode=DIR_MODE)
+    os.makedirs(OUTPUT_FOLDER, exist_ok=True, mode=DIR_MODE)
