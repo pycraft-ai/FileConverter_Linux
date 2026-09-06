@@ -268,6 +268,7 @@ class DatabaseManager:
                             message         TEXT,
                             output_path     VARCHAR(500) DEFAULT '',
                             ip_address      VARCHAR(45) DEFAULT '',
+                            duration_seconds FLOAT DEFAULT 0,
                             operation_time  DATETIME DEFAULT CURRENT_TIMESTAMP,
                             INDEX idx_username (username),
                             INDEX idx_operation_time (operation_time),
@@ -280,6 +281,7 @@ class DatabaseManager:
                         "ALTER TABLE conversion_logs ADD INDEX idx_user_time (username, operation_time)",
                         "ALTER TABLE conversion_logs ADD COLUMN output_path VARCHAR(500) DEFAULT '' AFTER message",
                         "ALTER TABLE conversion_logs ADD COLUMN ip_address VARCHAR(45) DEFAULT '' AFTER output_path",
+                        "ALTER TABLE conversion_logs ADD COLUMN duration_seconds FLOAT DEFAULT 0 AFTER ip_address",
                         "ALTER TABLE conversion_logs ADD INDEX idx_ip_time (ip_address, operation_time)"
                     ]:
                         try:
@@ -939,7 +941,7 @@ class DatabaseManager:
     # ========================
 
     @staticmethod
-    def log_conversion(username, mode, filename, success, message="", output_path="", ip_address=""):
+    def log_conversion(username, mode, filename, success, message="", output_path="", ip_address="", duration_seconds=0):
         """记录转换操作日志"""
         conn = None
         try:
@@ -948,9 +950,9 @@ class DatabaseManager:
                 cursor = conn.cursor()
                 cursor.execute(
                     """INSERT INTO conversion_logs
-                    (username, mode, filename, success, message, output_path, ip_address)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)""",
-                    (username, mode, filename, success, message, output_path, ip_address or '')
+                    (username, mode, filename, success, message, output_path, ip_address, duration_seconds)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+                    (username, mode, filename, success, message, output_path, ip_address or '', float(duration_seconds or 0))
                 )
                 conn.commit()
                 cursor.close()
@@ -1049,6 +1051,44 @@ class DatabaseManager:
                 return exists
         except Error as e:
             logger.error("校验输出文件归属失败 | user=%s err=%s", username, e)
+        finally:
+            if conn:
+                DatabaseManager.return_connection(conn)
+        return False
+
+    @staticmethod
+    def update_log_duration(username, output_path, duration_seconds):
+        """更新一条成功转换日志的耗时（用于前端上报的实际耗时，统一口径）。
+
+        output_path 用于定位该条日志（output_path 含 task_id 前缀），并校验归属，
+        防止用户随意修改他人日志耗时。
+        """
+        if not output_path or duration_seconds is None:
+            return False
+        conn = None
+        try:
+            conn = DatabaseManager.get_connection()
+            if conn:
+                cursor = conn.cursor()
+                # 用 LIKE 后缀匹配：output_path 在库中可能是绝对路径，
+                # 前端上报的 output_filename 是 basename，需以 % 结尾模糊匹配。
+                # 转义 LIKE 特殊字符，避免文件名中的 _ / % 造成意外匹配。
+                escaped = output_path.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+                cursor.execute(
+                    """UPDATE conversion_logs
+                    SET duration_seconds = %s
+                    WHERE username = %s AND success = TRUE
+                      AND output_path LIKE %s ESCAPE '\\\\'""",
+                    (float(duration_seconds), username, '%' + escaped)
+                )
+                affected = cursor.rowcount
+                conn.commit()
+                cursor.close()
+                return affected > 0
+        except Error as e:
+            logger.error("更新日志耗时失败 | user=%s err=%s", username, e)
+            if conn:
+                conn.rollback()
         finally:
             if conn:
                 DatabaseManager.return_connection(conn)
@@ -2088,13 +2128,14 @@ class DatabaseManager:
                 if stats is None:
                     stats = {'total': 0, 'success_count': 0, 'fail_count': 0}
 
-                # 按模式分组统计
+                # 按模式分组统计（含平均耗时）
                 if mode_filter:
                     cursor.execute(
                         """SELECT mode,
                             COUNT(*) as count,
                             SUM(CASE WHEN success = TRUE THEN 1 ELSE 0 END) as success_count,
-                            SUM(CASE WHEN success = FALSE THEN 1 ELSE 0 END) as fail_count
+                            SUM(CASE WHEN success = FALSE THEN 1 ELSE 0 END) as fail_count,
+                            ROUND(AVG(duration_seconds), 2) as avg_duration
                         FROM conversion_logs
                         WHERE username = %s AND mode = %s
                         GROUP BY mode
@@ -2106,7 +2147,8 @@ class DatabaseManager:
                         """SELECT mode,
                             COUNT(*) as count,
                             SUM(CASE WHEN success = TRUE THEN 1 ELSE 0 END) as success_count,
-                            SUM(CASE WHEN success = FALSE THEN 1 ELSE 0 END) as fail_count
+                            SUM(CASE WHEN success = FALSE THEN 1 ELSE 0 END) as fail_count,
+                            ROUND(AVG(duration_seconds), 2) as avg_duration
                         FROM conversion_logs
                         WHERE username = %s
                         GROUP BY mode
@@ -2114,6 +2156,10 @@ class DatabaseManager:
                         (username,)
                     )
                 by_mode = cursor.fetchall()
+                # 兼容旧记录：avg_duration 可能为 None
+                for row in by_mode:
+                    if row.get('avg_duration') is None:
+                        row['avg_duration'] = 0
 
                 cursor.close()
                 return True, stats, by_mode

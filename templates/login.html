@@ -1,76 +1,93 @@
 {% extends "base.html" %}
 {% block title %}登录 - FileConverter 文件转换工具{% endblock %}
 {% block guest_content %}
-<div class="row justify-content-center mt-5">
-    <div class="col-md-5 col-lg-4">
-        <div class="glass-card p-4 login-card">
-            <div class="text-center mb-4">
-                <div class="icon-circle">
-                    <i class="fas fa-lock fa-2x"></i>
-                </div>
-                <h3 class="fw-bold mt-3 gradient-text">欢迎回来</h3>
-                <p class="text-muted">登录您的账户开始使用</p>
-            </div>
-            <form method="post" action="{{ url_for('auth.login') }}" id="loginForm">
-                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-                <div class="mb-3">
-                    <label for="username" class="form-label">
-                        <i class="fas fa-user me-1"></i>用户名或邮箱
-                    </label>
-                    <div class="input-group input-group-glass">
-                        <span class="input-group-text"><i class="fas fa-user"></i></span>
-                        <input type="text" class="form-control" id="username"
-                               name="username" value="{{ session.get('prefill_username', '') }}"
-                               required autofocus placeholder="请输入用户名或邮箱">
+<!-- 星空背景（固定全屏，位于内容之下） -->
+<div class="star-bg" aria-hidden="true">
+    <div id="stars"></div>
+    <div id="stars2"></div>
+    <div id="stars3"></div>
+</div>
+<div class="container">
+    <div class="row justify-content-center mt-5">
+        <div class="col-md-5 col-lg-4">
+            <div class="glass-card p-4 login-card">
+                <div class="text-center mb-4">
+                    <div class="icon-circle">
+                        <i class="fas fa-lock fa-2x"></i>
                     </div>
+                    <h3 class="fw-bold mt-3 gradient-text">欢迎回来</h3>
+                    <p class="text-muted">登录您的账户开始使用</p>
                 </div>
-                <div class="mb-3">
-                    <label for="password" class="form-label">
-                        <i class="fas fa-key me-1"></i>密码
-                    </label>
-                    <div class="input-group input-group-glass">
-                        <span class="input-group-text"><i class="fas fa-lock"></i></span>
-                        <input type="password" class="form-control" id="password"
-                               name="password" value="{{ session.get('prefill_password', '') }}"
-                               required placeholder="请输入密码">
-                    </div>
-                </div>
-                <div class="mb-4">
-                    <label class="form-label"><i class="fas fa-tag me-1"></i>登录类型</label>
-                    <div class="d-flex gap-3">
-                        <div class="form-check form-check-inline login-type-option">
-                            <input class="form-check-input" type="radio" name="login_type"
-                                   id="type_times" value="times" checked>
-                            <label class="form-check-label" for="type_times">
-                                <i class="fas fa-clock me-1"></i>剩余次数
-                            </label>
-                        </div>
-                        <div class="form-check form-check-inline login-type-option">
-                            <input class="form-check-input" type="radio" name="login_type"
-                                   id="type_time" value="time">
-                            <label class="form-check-label" for="type_time">
-                                <i class="fas fa-calendar me-1"></i>剩余时间
-                            </label>
+                <form method="post" action="{{ url_for('auth.login') }}" id="loginForm">
+                        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                    <div class="mb-3">
+                        <label for="username" class="form-label">
+                            <i class="fas fa-user me-1"></i>用户名或邮箱
+                        </label>
+                        <div class="input-group input-group-glass">
+                            <span class="input-group-text"><i class="fas fa-user"></i></span>
+                            <input type="text" class="form-control" id="username"
+                                name="username" value="{{ session.get('prefill_username', '') }}"
+                                required autofocus placeholder="请输入用户名或邮箱">
                         </div>
                     </div>
-                </div>
-                <div class="text-end mb-3">
-                    <a href="{{ url_for('auth.forgot_password') }}" style="font-size:13px;color:#9ca3af;text-decoration:none;">
-                        忘记密码？
+                    <div class="mb-3">
+                        <label for="password" class="form-label">
+                            <i class="fas fa-key me-1"></i>密码
+                        </label>
+                        <div class="input-group input-group-glass">
+                            <span class="input-group-text"><i class="fas fa-lock"></i></span>
+                            <input type="password" class="form-control" id="password"
+                                name="password" value="{{ session.get('prefill_password', '') }}"
+                                required placeholder="请输入密码">
+                        </div>
+                    </div>
+                    <div class="mb-4">
+                        <label class="form-label"><i class="fas fa-tag me-1"></i>登录类型</label>
+                        <div class="d-flex gap-3">
+                            <div class="form-check form-check-inline login-type-option">
+                                <input class="form-check-input" type="radio" name="login_type"
+                                    id="type_times" value="times" checked>
+                                <label class="form-check-label" for="type_times">
+                                    <i class="fas fa-clock me-1"></i>剩余次数
+                                </label>
+                            </div>
+                            <div class="form-check form-check-inline login-type-option">
+                                <input class="form-check-input" type="radio" name="login_type"
+                                    id="type_time" value="time">
+                                <label class="form-check-label" for="type_time">
+                                    <i class="fas fa-calendar me-1"></i>剩余时间
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="text-end mb-3">
+                        <a href="{{ url_for('auth.forgot_password') }}" style="font-size:13px;color:#9ca3af;text-decoration:none;">
+                            忘记密码？
+                        </a>
+                    </div>
+                    <button type="submit" class="btn btn-gradient w-100 btn-lg">
+                        <i class="fas fa-sign-in-alt me-2"></i>登录
+                    </button>
+                </form>
+                <hr class="my-4">
+                <p class="text-center mb-0">
+                    还没有账户？
+                    <a href="{{ url_for('auth.register') }}" class="link-gradient">
+                        立即注册 <i class="fas fa-arrow-right ms-1"></i>
                     </a>
-                </div>
-                <button type="submit" class="btn btn-gradient w-100 btn-lg">
-                    <i class="fas fa-sign-in-alt me-2"></i>登录
-                </button>
-            </form>
-            <hr class="my-4">
-            <p class="text-center mb-0">
-                还没有账户？
-                <a href="{{ url_for('auth.register') }}" class="link-gradient">
-                    立即注册 <i class="fas fa-arrow-right ms-1"></i>
-                </a>
-            </p>
+                </p>
+            </div>
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ g.get('csp_nonce', '') }}">
+// 标签页切到后台时暂停星空动画，避免后台持续占用 GPU
+document.addEventListener('visibilitychange', function () {
+    document.body.classList.toggle('stars-paused', document.hidden);
+});
+</script>
 {% endblock %}

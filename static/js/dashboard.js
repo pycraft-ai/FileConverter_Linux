@@ -6,6 +6,20 @@
 $(function () {
     var currentCharts = {};
 
+    // 格式化耗时：秒 → 'X分X秒' 或 'X.XX秒'
+    function formatDuration(seconds) {
+        if (seconds === null || seconds === undefined || seconds === '' || isNaN(seconds)) return '--';
+        var v = parseFloat(seconds);
+        if (v <= 0) return '--';
+        if (v >= 60) {
+            var m = Math.floor(v / 60);
+            var s = Math.round(v % 60);
+            if (s === 60) { m += 1; s = 0; }
+            return m + '分' + s + '秒';
+        }
+        return v.toFixed(2) + '秒';
+    }
+
     function destroyCharts() {
         Object.values(currentCharts).forEach(function (c) { if (c) c.destroy(); });
         currentCharts = {};
@@ -123,6 +137,7 @@ $(function () {
                     '<td style="color:#ef4444;">' + m.fail_count + '</td>' +
                     '<td><span style="font-size:12px;">' + mr + '%</span>' +
                     '<div class="rate-bar-wrap"><div class="rate-bar-fill" style="width:' + mr + '%;"></div></div></td>' +
+                    '<td style="font-size:12px;color:var(--text-secondary);">' + formatDuration(m.avg_duration) + '</td>' +
                     '</tr>';
             });
             $('#modeDetailTable tbody').html(tbody);

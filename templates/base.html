@@ -8,6 +8,7 @@
     <meta name="has-user" content="{{ 'true' if session.get('username') else 'false' }}">
     <title>{% block title %}FileConverter 文件转换工具 - 在线免费 PDF/Word/Excel/PPT 互转与 OCR 识别{% endblock %}</title>
     <!-- ===== 站点图标（favicon，base64 内联最可靠，绕开缓存/CDN/CSP 问题）===== -->
+     <link rel="stylesheet" href="{{ url_for('static', filename='css/background.css') }}">
     <link rel="icon" type="image/png" sizes="48x48" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAAwCAYAAABXAvmHAAABIElEQVR4nO2ZUQ7CIAyGgXgFd0S9hcbdwh3RHUKfSEgHXQtjtLHfI6Xx/2lLiPMO4fb4fLH4WSzz5EuxbECKcEjOSIALUsU7l9cW9jZIA2oMpYBkUq0BLmghat7MgDa8xtNPUV8BMzAaMzCaCzfh/bqS9t2f66G5JVgVoArI7W3JxVDfQmZgNOwhjpQGjdK/LbmQqgpgt0Qaywmi5lKpMoCd1N7tw8mlUN1CNT92RC7klCE+UjDEhpgTa83N0XWIue8hG+Ie1LQFh+oKUOh5+0TUv4W6GujdPs6dNAM9jVgLjea/DHB6Ge5tycWwP3dHYwZGo98A9hFZOss8ef0VcA7/lC+VqDnABQ2kWkMpIBWocTMDkk3ktKFipTwzsEP9ARorfPVsqcx2AAAAAElFTkSuQmCC">
     <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon.png') }}">
     <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}">
@@ -536,7 +537,7 @@
     <!-- jQuery 必须同步加载，后续内联脚本依赖 $  -->
     <script src="{{ CDN_BASE_URL }}/jquery/3.7.1/jquery.min.js"></script>
     <script src="{{ CDN_BASE_URL }}/twitter-bootstrap/5.3.2/js/bootstrap.bundle.min.js" defer></script>
-    <script src="{{ url_for('static', filename='js/base.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/base.js') }}?v=20260818"></script>
     {% block scripts %}{% endblock %}
 </body>
 </html>

@@ -1,5 +1,6 @@
 import os
 import re
+import time
 import uuid
 import zipfile
 from datetime import datetime
@@ -433,6 +434,40 @@ def privacy():
     return render_template('privacy.html')
 
 
+@converter_bp.route('/convert/report_duration', methods=['POST'])
+def report_duration():
+    """接收前端上报的实际转换耗时（含文件上传传输时间），更新对应日志耗时。
+
+    目的是让仪表盘的平均耗时与转换成功后显示的前端耗时口径一致。
+    - 需要登录或游客身份；
+    - 通过 output_filename 定位并校验归属（output_path 含 task_id 前缀），
+      防止用户修改他人日志。
+    """
+    if not request.is_json:
+        return jsonify({'success': False, 'message': '非法请求'}), 400
+    data = request.get_json(silent=True) or {}
+    output_filename = (data.get('output_filename') or '').strip()
+    duration = data.get('duration_seconds')
+    if not output_filename or duration is None:
+        return jsonify({'success': False, 'message': '参数缺失'}), 400
+
+    # 身份：登录用户名 或 游客（与 convert 路由的日志标识一致，保证能匹配归属）
+    is_guest = 'username' not in session
+    _uname = 'guest' if is_guest else session['username']
+    try:
+        dur = float(duration)
+    except (ValueError, TypeError):
+        return jsonify({'success': False, 'message': '无效耗时'}), 400
+    if dur < 0 or dur > 3600:
+        return jsonify({'success': False, 'message': '耗时超范围'}), 400
+
+    ok = DatabaseManager.update_log_duration(_uname, output_filename, dur)
+    if ok:
+        return jsonify({'success': True})
+    # 游客或未找到匹配日志：不做强校验失败（避免干扰），静默返回成功
+    return jsonify({'success': True})
+
+
 @converter_bp.route('/convert', methods=['POST'])
 def convert():
     mode = request.form.get('mode', '')
@@ -505,6 +540,9 @@ def convert():
 
     task_id = uuid.uuid4().hex
     input_type = MODE_INPUT_TYPE.get(mode, 'file')
+
+    # 记录转换耗时：从开始上传处理到转换完成
+    _conv_start = time.time()
 
     # OCR 模式：支持选择输出格式（txt / md / docx）
     output_format = 'txt'
@@ -1134,9 +1172,11 @@ def convert():
         if result:
             # 记录成功日志（使用原始文件名，而非哈希后的保存路径）
             filename_list = ', '.join(original_filenames) if original_filenames else ', '.join([os.path.basename(p) for p in input_paths])
+            _conv_duration = round(time.time() - _conv_start, 2)
             DatabaseManager.log_conversion(
                 _uname, mode, filename_list, True, '转换成功',
-                output_path=output_path, ip_address=_client_ip
+                output_path=output_path, ip_address=_client_ip,
+                duration_seconds=_conv_duration
             )
             logger.info("转换成功 | user=%s mode=%s files=%s", _uname, mode, filename_list)
 
@@ -1202,7 +1242,11 @@ def convert():
                     'converter.download', filename=output_basename, name=display_name
                 ),
                 'display_name': display_name,
-                'remaining_times': remaining_times
+                'remaining_times': remaining_times,
+                # 本次转换耗时（秒），前端在成功提示下显示小字
+                'duration_seconds': _conv_duration,
+                # 输出文件名（用于前端上报实际耗时，统一仪表盘口径）
+                'output_filename': output_basename
             }
 
             # 解压模式额外返回文件列表
@@ -1213,9 +1257,10 @@ def convert():
             return jsonify(resp)
         else:
             filename_list = ', '.join(original_filenames) if original_filenames else ', '.join([os.path.basename(p) for p in input_paths])
+            _conv_duration = round(time.time() - _conv_start, 2)
             DatabaseManager.log_conversion(
                 _uname, mode, filename_list, False, '转换失败',
-                ip_address=_client_ip
+                ip_address=_client_ip, duration_seconds=_conv_duration
             )
             logger.warning("转换失败 | user=%s mode=%s files=%s", _uname, mode, filename_list)
 
@@ -1258,10 +1303,11 @@ def convert():
         # 记录异常日志（详细信息写入服务端日志，前端只返回通用错误）
         mode_safe = request.form.get('mode', '未知')
         logger.error("转换异常 | user=%s mode=%s err=%s exc=%s", _uname, mode_safe, e, type(e).__name__)
+        _conv_duration = round(time.time() - _conv_start, 2)
         DatabaseManager.log_conversion(
             _uname, mode_safe, '', False,
             f'系统异常: {type(e).__name__}',  # 只记录异常类型，不记录详细信息
-            ip_address=_client_ip
+            ip_address=_client_ip, duration_seconds=_conv_duration
         )
         return jsonify({'success': False, 'message': '服务器处理出错，请稍后重试或联系管理员'})
     finally:

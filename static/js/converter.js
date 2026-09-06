@@ -498,6 +498,9 @@ $(function () {
         $dl.removeClass('show');
         $btn.prop('disabled', true);
 
+        // 记录前端计时起点：点击开始转换（含文件上传传输时间）
+        _convStartTime = Date.now();
+
         $('html, body').animate({ scrollTop: $res.offset().top - 100 }, 400);
 
         $.ajax({
@@ -567,6 +570,10 @@ $(function () {
                         $dl.html('<i class="fas fa-download"></i> ' + response.display_name);
                     }
                 }
+                // 显示本次转换耗时小字（前端计时优先，并上报后端统一仪表盘口径）
+                if (response.duration_seconds !== undefined && response.duration_seconds !== null) {
+                    showConvertDuration(response.duration_seconds, response.output_filename);
+                }
                 if (response.extracted_files && response.extracted_files.length > 0) {
                     renderExtractedFiles(response.extracted_files);
                 }
@@ -577,6 +584,57 @@ $(function () {
                 $msg.addClass('error').html('<i class="fas fa-exclamation-circle"></i> ' + response.message).show();
             }
         }, 600);
+    }
+
+    // ===== 前端计时变量（点击开始 → 收到成功响应） =====
+    var _convStartTime = null;
+
+    // ===== 显示本次转换耗时 =====
+    // 优先使用前端计时（从点击按钮到收到成功响应，包含文件上传传输时间），
+    // 更贴近用户感知；若前端计时不可用，则回退使用后端返回的秒数。
+    function showConvertDuration(backendSeconds, outputFilename) {
+        var $el = $('#convertDuration');
+        if (!$el.length) return;
+        var v;
+        var usedFrontend = false;
+        if (_convStartTime !== null) {
+            v = (Date.now() - _convStartTime) / 1000;
+            _convStartTime = null; // 一次性使用，避免残留
+            usedFrontend = true;
+        } else {
+            v = parseFloat(backendSeconds);
+        }
+        if (isNaN(v) || v < 0) v = 0;
+        var txt;
+        if (v >= 60) {
+            var m = Math.floor(v / 60), s = Math.round(v % 60);
+            txt = m + ' 分 ' + s + ' 秒';
+        } else {
+            txt = v.toFixed(2) + ' 秒';
+        }
+        $('#convertDurationVal').text(txt);
+        $el.show();
+
+        // 前端计时可用时，把实际耗时上报后端，统一仪表盘平均耗时口径
+        if (usedFrontend && outputFilename) {
+            reportDurationToServer(outputFilename, v);
+        }
+    }
+
+    // ===== 上报实际耗时到后端（统一仪表盘口径） =====
+    function reportDurationToServer(outputFilename, durationSeconds) {
+        $.ajax({
+            url: _reportDurationUrl || ('/convert/report_duration'),
+            type: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({
+                output_filename: outputFilename,
+                duration_seconds: durationSeconds
+            }),
+            complete: function () {
+                // 静默处理，失败不影响用户体验
+            }
+        });
     }
 
     // ===== 渲染解压文件列表 =====
@@ -607,6 +665,7 @@ $(function () {
     // ===== 开始转换 =====
     $('#convertBtn').on('click', function () {
         $('#extractedFilesArea').hide();
+        $('#convertDuration').hide(); // 隐藏上次转换耗时
         var mode = $('input[name="mode"]:checked').val();
         if (!mode) { showToast('请先选择转换模式'); return; }
         // 游客已用完体验次数：点击直接引导登录

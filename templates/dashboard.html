@@ -227,6 +227,7 @@
                     <th>成功</th>
                     <th>失败</th>
                     <th>成功率</th>
+                    <th>平均耗时</th>
                 </tr>
             </thead>
             <tbody>
@@ -240,6 +241,9 @@
                         {% set mr = (m.success_count / m.count * 100) if m.count > 0 else 0 %}
                         <span style="font-size: 12px;">{{ "%.0f"|format(mr) }}%</span>
                         <div class="rate-bar-wrap"><div class="rate-bar-fill" style="width: {{ mr }}%;"></div></div>
+                    </td>
+                    <td style="font-size: 12px; color: var(--text-secondary);">
+                        {{ m.avg_duration | format_duration }}
                     </td>
                 </tr>
                 {% endfor %}

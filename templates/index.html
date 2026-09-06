@@ -631,6 +631,10 @@
                 </div>
                 <div class="result-msg" id="resultMessage" style="display:none;"></div>
                 <a class="btn-dl" id="downloadBtn"><i class="fas fa-download"></i> 下载文件</a>
+                <!-- 转换耗时小字 -->
+                <div id="convertDuration" style="display:none;margin-top:8px;font-size:12px;color:var(--text-muted);text-align:center;">
+                    <i class="fas fa-stopwatch"></i> 本次转换耗时 <span id="convertDurationVal">0</span>
+                </div>
                 <!-- 解压文件列表 -->
                 <div id="extractedFilesArea" style="display:none;margin-top:12px;">
                     <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:6px;">
@@ -687,5 +691,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/converter.js') }}"></script>
+<script src="{{ url_for('static', filename='js/converter.js') }}?v=20260818"></script>
 {% endblock %}

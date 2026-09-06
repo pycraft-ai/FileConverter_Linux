@@ -67,6 +67,28 @@ def time_remaining_filter(expiration_str):
         return str(expiration_str)
 
 
+# 自定义 Jinja2 过滤器：转换耗时格式化（秒 → 'X分X秒' 或 'X秒'）
+@app.template_filter('format_duration')
+def format_duration_filter(seconds):
+    """根据秒数返回 'X分X秒' 或 'X.XX秒' 格式的耗时"""
+    if seconds is None or seconds == '':
+        return '--'
+    try:
+        v = float(seconds)
+    except (ValueError, TypeError):
+        return '--'
+    if v <= 0:
+        return '--'
+    if v >= 60:
+        m = int(v // 60)
+        s = int(round(v % 60))
+        if s == 60:
+            m += 1
+            s = 0
+        return f'{m}分{s}秒'
+    return f'{v:.2f}秒'
+
+
 # 全局模板变量：CSRF token + CDN URL
 @app.context_processor
 def inject_global_vars():

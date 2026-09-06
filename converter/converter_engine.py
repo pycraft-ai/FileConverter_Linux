@@ -27,7 +27,7 @@ from PyPDF2 import PdfMerger, PdfReader, PdfWriter
 # ========================
 DEFAULT_IMAGE_DPI = (150, 150)       # 图片转 PDF 默认 DPI
 PDF_TO_IMAGE_DPI = 300               # PDF 转图片 DPI
-OCR_TIMEOUT_SECONDS = 60             # OCR 最大处理时间（秒）
+OCR_TIMEOUT_SECONDS = 120            # OCR 最大处理时间（秒），多方向+多语言模式识别更耗时
 SLIDE_WIDTH_INCHES = 16              # PPT 幻灯片宽度（16:9）
 SLIDE_HEIGHT_INCHES = 9              # PPT 幻灯片高度（16:9）
 
@@ -721,13 +721,26 @@ ul, ol {{ padding-left: 2em; }}
 
     @staticmethod
     def _ocr_pdf_pages(pdfPath):
-        """OCR 辅助：将PDF页转图片后识别文字（在独立线程中运行）"""
+        """OCR 辅助：将PDF页转图片后识别文字（在独立线程中运行）
+
+        对每页启用自动方向检测/多方向容错，避免竖排扫描页面被识别为乱码。
+        """
         pages = convert_from_path(pdfPath, 300)
         text = ""
         for page in pages:
-            text += pytesseract.image_to_string(
-                page, lang='chi_sim+eng'
-            ) + "\n"
+            # 复用图片 OCR 的自动旋转逻辑 + 放大预处理
+            try:
+                pre = Function._preprocess_for_ocr(page)
+                rotated_img, osd_ok = Function._auto_orient_image(pre)
+                if osd_ok:
+                    page_text = pytesseract.image_to_string(
+                        rotated_img, lang='chi_sim+eng'
+                    )
+                else:
+                    page_text = Function._best_rotation_ocr(pre)
+            except Exception:
+                page_text = pytesseract.image_to_string(page, lang='chi_sim+eng')
+            text += page_text + "\n"
         return text
 
     @staticmethod
@@ -790,10 +803,142 @@ ul, ol {{ padding-left: 2em; }}
 
     @staticmethod
     def _ocr_single_image(image_path):
-        """OCR 辅助：识别单张图片文字（在独立线程中运行）"""
-        return pytesseract.image_to_string(
-            Image.open(image_path), lang='chi_sim+eng'
-        )
+        """OCR 辅助：识别单张图片文字（在独立线程中运行）
+
+        性能优先策略：
+        1. 快速路径：直接对原方向（横排假设）做纯 chi_sim 识别，
+           不被半角标点误导，通常 1 次 OCR 即可完成（速度快）。
+        2. 兜底路径：若快速路径几乎没识别出中文（可能是竖排/倒置/异常图），
+           才升级到多方向 + 多语言模式，选出 CJK 密度最高的结果。
+        """
+        try:
+            img = Function._preprocess_for_ocr(Image.open(image_path))
+            # 快速路径：纯中文，原方向识别
+            fast_text = pytesseract.image_to_string(img, lang='chi_sim')
+            # 中文密度高（>=10 字），且非中文占优，直接返回
+            if Function._cjk_char_count(fast_text) >= 10:
+                return fast_text
+            # 兜底路径：多方向 + 多语言模式
+            return Function._best_rotation_ocr(img)
+        except Exception as e:
+            # 出错回退到原始图像识别（避免 OSD 异常导致整图失败）
+            logger.warning("OCR 方向检测异常，回退原始识别 %s: %s", image_path, e)
+            return pytesseract.image_to_string(
+                Image.open(image_path), lang='chi_sim'
+            )
+
+    @staticmethod
+    def _preprocess_for_ocr(img):
+        """OCR 前图像预处理：灰度化 + 放大 + 对比度增强 + 轻度去噪。
+
+        兼顾速度与清晰度：
+        - 短边 < 1500 放大 2 倍；
+        - 短边 >= 1500 不放大（已足够清晰，避免拖慢速度）；
+        - 超大图（短边 >= 4000）也不放大，防内存/耗时爆炸。
+        LANCZOS 高精度插值；autocontrast 拉伸明暗；轻度锐化增强边缘。
+        """
+        try:
+            from PIL import ImageOps, ImageFilter
+            gray = img.convert('L')
+            w, h = gray.size
+            short = min(w, h)
+            if short < 1500:
+                scale = 2
+                resized = gray.resize((w * scale, h * scale), Image.LANCZOS)
+            else:
+                resized = gray
+            # 轻度锐化，增强字符边缘
+            try:
+                enhanced = resized.filter(
+                    ImageFilter.UnsharpMask(radius=2, percent=100, threshold=3)
+                )
+            except Exception:
+                enhanced = resized
+            return ImageOps.autocontrast(enhanced)
+        except Exception:
+            return img
+
+    @staticmethod
+    def _auto_orient_image(img):
+        """使用 Tesseract OSD 检测图像方向并旋转回正向。
+
+        Returns:
+            (rotated_img, success)
+        """
+        try:
+            osd = pytesseract.image_to_osd(img)
+            # OSD 输出第 1 行包含 'Rotate: <angle>'
+            import re
+            m = re.search(r'Rotate:\s*(\d+)', osd)
+            if not m:
+                return img, False
+            angle = int(m.group(1))
+            if angle == 0:
+                return img, True
+            # PIL 的 rotate 是逆时针；OSD 的 Rotate 是顺时针需要反向旋转
+            rotated = img.rotate(-angle, expand=True, fillcolor=(255, 255, 255))
+            return rotated, True
+        except Exception:
+            return img, False
+
+    @staticmethod
+    def _best_rotation_ocr(img):
+        """对 0°/90°/270° 三方向各做 OCR，选中文密度最高的结果。
+
+        每个方向同时跑「chi_sim+eng（中英混合，半角标点易触发英文识别）」
+        和「chi_sim（纯中文，不被半角标点误导）」两种语言模式，并对
+        纯中文结果的 CJK 密度加权 1.5x。这样中文占主导的图像，纯中文
+        结果会更胜出，避免 Tesseract 看到半角 ,.; 等把中文字符误识别
+        成拉丁字母。
+        每个方向再叠加 --psm 5 竖排/稀疏模式尝试，取该方向下得分最高者。
+        最终在 3 个方向间取 CJK 密度最高者。
+        """
+        candidates = []
+        for angle in (0, 90, 270):
+            try:
+                if angle == 0:
+                    rotated = img
+                else:
+                    rotated = img.rotate(-angle, expand=True, fillcolor=(255, 255, 255))
+                # 默认页模式：chi_sim+eng
+                try:
+                    text_mix = pytesseract.image_to_string(rotated, lang='chi_sim+eng')
+                except Exception:
+                    text_mix = ''
+                score_mix = Function._cjk_char_count(text_mix)
+                # 纯中文模式：避免半角标点误导
+                try:
+                    text_cn = pytesseract.image_to_string(rotated, lang='chi_sim')
+                except Exception:
+                    text_cn = ''
+                score_cn = Function._cjk_char_count(text_cn) * 1.5
+                # 竖排友好模式（单列/稀疏文本）：纯中文
+                try:
+                    text_col = pytesseract.image_to_string(
+                        rotated, lang='chi_sim', config='--psm 5'
+                    )
+                except Exception:
+                    text_col = ''
+                score_col = Function._cjk_char_count(text_col) * 1.5
+                # 取该方向下得分最高者
+                best = max(
+                    [(score_mix, text_mix), (score_cn, text_cn), (score_col, text_col)],
+                    key=lambda x: x[0]
+                )
+                candidates.append(best)
+            except Exception:
+                continue
+        if not candidates:
+            return ''
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        return candidates[0][1]
+
+    @staticmethod
+    def _cjk_char_count(text):
+        """统计文本中 CJK 字符（中日韩）及全角标点的数量。"""
+        if not text:
+            return 0
+        return sum(1 for c in text if '\u4e00' <= c <= '\u9fff' or '\uff00' <= c <= '\uffef')
 
     @staticmethod
     def image_ocr(imagePath, outputPath, output_format='txt'):
