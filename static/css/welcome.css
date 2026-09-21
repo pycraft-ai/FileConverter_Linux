@@ -1,0 +1,412 @@
+/* =========================================================
+   FileConverter 欢迎页样式
+   设计基调：深空底 + 流动极光 + 粒子连线 + 玻璃拟态卡片
+   ========================================================= */
+
+:root {
+    --wv-bg: #060a18;
+    --wv-fg: #eaf0ff;
+    --wv-muted: rgba(234, 240, 255, .70);
+    --wv-glass: rgba(255, 255, 255, .055);
+    --wv-glass-strong: rgba(255, 255, 255, .10);
+    --wv-border: rgba(255, 255, 255, .14);
+    --wv-1: #667eea;
+    --wv-2: #764ba2;
+    --wv-3: #22d3ee;
+    --wv-4: #f472b6;
+}
+
+* { box-sizing: border-box; }
+
+.wv-body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--wv-bg);
+    color: var(--wv-fg);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+                 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+}
+
+.wv-body a { text-decoration: none; }
+
+/* ===================== 背景层 ===================== */
+.wv-aurora {
+    position: fixed;
+    inset: -20%;
+    z-index: 0;
+    pointer-events: none;
+    /* 用多层 radial-gradient 自身完成柔化，避免运行期 filter: blur() 重复栅格化 */
+    background:
+        radial-gradient(38% 42% at 18% 22%, rgba(102, 126, 234, .50), transparent 70%),
+        radial-gradient(34% 40% at 82% 16%, rgba(118, 75, 162, .46), transparent 72%),
+        radial-gradient(42% 46% at 74% 80%, rgba(34, 211, 238, .30), transparent 70%),
+        radial-gradient(36% 42% at 22% 84%, rgba(244, 114, 182, .24), transparent 72%);
+    transform: translate3d(0, 0, 0);
+    will-change: transform;
+    animation: wv-aurora 30s ease-in-out infinite alternate;
+}
+@keyframes wv-aurora {
+    0%   { transform: translate3d(-3%, -2%, 0) scale(1.05); }
+    50%  { transform: translate3d(3%, 2%, 0)   scale(1.12); }
+    100% { transform: translate3d(-2%, 3%, 0)  scale(1.08); }
+}
+
+/* 漂浮光球 */
+.wv-orbs { position: fixed; inset: 0; z-index: 1; pointer-events: none; overflow: hidden; }
+.wv-orb {
+    position: absolute;
+    border-radius: 50%;
+    opacity: .55;
+    will-change: transform;
+}
+.wv-orb.o1 {
+    width: 420px; height: 420px; top: 2%; left: 0;
+    background: radial-gradient(circle, rgba(102, 126, 234, .75), rgba(102, 126, 234, .22) 45%, transparent 78%);
+    animation: wv-float1 18s ease-in-out infinite;
+}
+.wv-orb.o2 {
+    width: 380px; height: 380px; top: 48%; right: -4%;
+    background: radial-gradient(circle, rgba(34, 211, 238, .48), rgba(34, 211, 238, .16) 45%, transparent 78%);
+    animation: wv-float2 22s ease-in-out infinite;
+}
+.wv-orb.o3 {
+    width: 340px; height: 340px; bottom: -10%; left: 40%;
+    background: radial-gradient(circle, rgba(244, 114, 182, .42), rgba(244, 114, 182, .14) 45%, transparent 78%);
+    animation: wv-float3 26s ease-in-out infinite;
+}
+@keyframes wv-float1 {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    50%      { transform: translate(60px, 40px) scale(1.12); }
+}
+@keyframes wv-float2 {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    50%      { transform: translate(-70px, -50px) scale(1.15); }
+}
+@keyframes wv-float3 {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    50%      { transform: translate(40px, -60px) scale(1.1); }
+}
+
+/* 网格 */
+.wv-grid {
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+    overflow: hidden;
+    -webkit-mask-image: radial-gradient(ellipse at 50% 40%, #000 30%, transparent 78%);
+            mask-image: radial-gradient(ellipse at 50% 40%, #000 30%, transparent 78%);
+}
+/* 图案放在子层，用 transform 平移（合成层动画），避免每帧重算 mask / background-position */
+.wv-grid::before {
+    content: '';
+    position: absolute;
+    inset: -56px;
+    background-image:
+        linear-gradient(rgba(255, 255, 255, .06) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, .06) 1px, transparent 1px);
+    background-size: 56px 56px;
+    will-change: transform;
+    animation: wv-grid 18s linear infinite;
+}
+@keyframes wv-grid {
+    from { transform: translate3d(0, 0, 0); }
+    to   { transform: translate3d(56px, 56px, 0); }
+}
+
+/* 粒子画布 */
+#wvParticles {
+    position: fixed;
+    inset: 0;
+    z-index: 2;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    opacity: .75;
+}
+
+/* ===================== 内容层 ===================== */
+.wv-shell {
+    position: relative;
+    z-index: 3;
+    max-width: 1120px;
+    margin: 0 auto;
+    /* 顶部留出固定顶栏的高度 */
+    padding: clamp(88px, 11vh, 112px) 24px 40px;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+}
+
+/* 顶栏：品牌贴屏幕左上角，登录/注册贴屏幕右上角
+   （脱离 .wv-shell 的 1120px 宽度限制，直接钉在视口上） */
+.wv-top {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 20px clamp(20px, 3.5vw, 48px);
+    /* 顶部柔和渐隐，避免固定顶栏与背景糊在一起 */
+    background: linear-gradient(180deg, rgba(6, 10, 24, .9), rgba(6, 10, 24, 0));
+}
+.wv-brand { display: flex; align-items: center; gap: 10px; }
+.wv-brand-icon {
+    width: 38px; height: 38px;
+    border-radius: 11px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 17px; color: #fff;
+    background: linear-gradient(135deg, var(--wv-1), var(--wv-2));
+    box-shadow: 0 8px 22px rgba(102, 126, 234, .45);
+}
+.wv-brand-text {
+    font-size: 17px; font-weight: 700; letter-spacing: .3px;
+    background: linear-gradient(120deg, #fff, #c7d2fe);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+}
+.wv-top-nav { display: flex; align-items: center; gap: 10px; }
+.wv-top-nav a {
+    color: var(--wv-muted);
+    font-size: 14px; font-weight: 500;
+    padding: 8px 14px; border-radius: 999px;
+    border: 1px solid transparent;
+    transition: all .18s;
+}
+.wv-top-nav a:hover { color: #fff; background: var(--wv-glass); border-color: var(--wv-border); }
+.wv-top-nav .wv-top-register {
+    color: #fff;
+    border-color: var(--wv-border);
+    background: var(--wv-glass-strong);
+}
+
+/* 主视觉 */
+.wv-hero {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 32px 0 40px;
+}
+
+.wv-badge {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 7px 16px; border-radius: 999px;
+    font-size: 13px; font-weight: 500;     color: #dbe4ff;
+    /* 深色半透明底代替 backdrop-filter，避免与动画背景叠加时每帧重采样 */
+    background: rgba(18, 24, 46, .55);
+    border: 1px solid var(--wv-border);
+}
+.wv-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: #34d399;
+    box-shadow: 0 0 0 0 rgba(52, 211, 153, .8);
+    animation: wv-ping 1.8s ease-out infinite;
+}
+@keyframes wv-ping {
+    0%   { box-shadow: 0 0 0 0 rgba(52, 211, 153, .7); }
+    70%  { box-shadow: 0 0 0 10px rgba(52, 211, 153, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0); }
+}
+
+.wv-title {
+    margin: 26px 0 0;
+    font-size: clamp(34px, 6.2vw, 64px);
+    line-height: 1.18;
+    font-weight: 800;
+    letter-spacing: -.5px;
+}
+.wv-gradient {
+    background: linear-gradient(100deg, #ffffff 0%, #a5b4fc 25%, #67e8f9 45%, #f9a8d4 70%, #ffffff 100%);
+    background-size: 250% 100%;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    animation: wv-shine 7s linear infinite;
+}
+@keyframes wv-shine {
+    from { background-position: 0% 50%; }
+    to   { background-position: 250% 50%; }
+}
+
+.wv-sub {
+    margin: 20px auto 0;
+    max-width: 640px;
+    font-size: clamp(15px, 1.7vw, 17px);
+    line-height: 1.85;
+    color: var(--wv-muted);
+}
+.wv-sub strong { color: #fff; font-weight: 700; }
+
+/* 按钮组 */
+.wv-actions {
+    margin-top: 38px;
+    display: flex; align-items: center; justify-content: center;
+    gap: 16px; flex-wrap: wrap;
+}
+.wv-cta {
+    position: relative;
+    overflow: hidden;
+    display: inline-flex; align-items: center; gap: 12px;
+    padding: 17px 40px;
+    border-radius: 999px;
+    font-size: 17px; font-weight: 700; letter-spacing: .6px;
+    color: #fff;
+    background: linear-gradient(115deg, var(--wv-1), var(--wv-2) 45%, var(--wv-3));
+    background-size: 220% 100%;
+    box-shadow: 0 14px 34px rgba(102, 126, 234, .45),
+                inset 0 0 0 1px rgba(255, 255, 255, .18);
+    /* 只保留渐变流动；不再动画 box-shadow（每帧重绘，代价高） */
+    animation: wv-cta-grad 8s linear infinite;
+    transition: transform .2s ease, box-shadow .2s ease;
+}
+.wv-cta:hover {
+    transform: translateY(-3px) scale(1.02);
+    box-shadow: 0 20px 44px rgba(102, 126, 234, .6),
+                inset 0 0 0 1px rgba(255, 255, 255, .3);
+}
+.wv-cta:active { transform: translateY(-1px) scale(.99); }
+.wv-cta i { transition: transform .2s; }
+.wv-cta:hover i { transform: translateX(4px); }
+.wv-cta::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 45%; height: 100%;
+    background: linear-gradient(100deg, transparent, rgba(255, 255, 255, .55), transparent);
+    transform: translateX(-140%) skewX(-20deg);
+    animation: wv-sweep 4.2s ease-in-out infinite;
+    pointer-events: none;
+}
+@keyframes wv-cta-grad {
+    from { background-position: 0% 50%; }
+    to   { background-position: 220% 50%; }
+}
+@keyframes wv-sweep {
+    0%        { transform: translateX(-140%) skewX(-20deg); }
+    55%, 100% { transform: translateX(330%)  skewX(-20deg); }
+}
+
+.wv-ghost {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 15px 26px;
+    border-radius: 999px;
+    font-size: 15px; font-weight: 600;
+    color: var(--wv-fg);
+    background: rgba(255, 255, 255, .07);
+    border: 1px solid var(--wv-border);
+    transition: background .18s, border-color .18s, transform .18s;
+}
+.wv-ghost:hover {
+    background: var(--wv-glass-strong);
+    border-color: rgba(255, 255, 255, .3);
+    transform: translateY(-2px);
+}
+
+.wv-tip {
+    margin: 18px 0 0;
+    font-size: 13.5px;
+    color: rgba(234, 240, 255, .62);
+}
+.wv-tip i { color: #fbbf24; margin-right: 4px; }
+.wv-tip strong { color: #fbbf24; }
+
+/* 能力卡片 */
+.wv-features {
+    list-style: none;
+    margin: 56px 0 0;
+    padding: 0;
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+}
+.wv-card {
+    padding: 22px 20px;
+    border-radius: 16px;
+    text-align: left;
+    background: rgba(255, 255, 255, .065);
+    border: 1px solid var(--wv-border);
+    transition: transform .22s ease, border-color .22s ease, background .22s ease;
+}
+.wv-card:hover {
+    transform: translateY(-6px);
+    background: var(--wv-glass-strong);
+    border-color: rgba(255, 255, 255, .28);
+}
+.wv-card-icon {
+    width: 42px; height: 42px;
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 17px; color: #fff;
+    margin-bottom: 14px;
+}
+.wv-card-icon.c1 { background: linear-gradient(135deg, #667eea, #764ba2); box-shadow: 0 8px 20px rgba(102, 126, 234, .35); }
+.wv-card-icon.c2 { background: linear-gradient(135deg, #f59e0b, #ef4444); box-shadow: 0 8px 20px rgba(245, 158, 11, .32); }
+.wv-card-icon.c3 { background: linear-gradient(135deg, #22d3ee, #3b82f6); box-shadow: 0 8px 20px rgba(34, 211, 238, .32); }
+.wv-card-icon.c4 { background: linear-gradient(135deg, #34d399, #10b981); box-shadow: 0 8px 20px rgba(52, 211, 153, .32); }
+.wv-card-title { font-size: 15px; font-weight: 700; margin-bottom: 6px; }
+.wv-card-desc { font-size: 13px; line-height: 1.7; color: var(--wv-muted); }
+
+/* 页脚 */
+.wv-footer {
+    margin-top: 44px;
+    text-align: center;
+    font-size: 13px;
+    color: rgba(234, 240, 255, .55);
+}
+.wv-footer a { color: inherit; transition: color .18s; }
+.wv-footer a:hover { color: #fff; }
+.wv-sep { margin: 0 8px; opacity: .5; }
+
+/* ===================== 入场动画 ===================== */
+.wv-reveal {
+    opacity: 0;
+    transform: translateY(26px);
+    animation: wv-up .85s cubic-bezier(.2, .7, .2, 1) forwards;
+}
+@keyframes wv-up {
+    to { opacity: 1; transform: translateY(0); }
+}
+.d1  { animation-delay: .10s; }
+.d2  { animation-delay: .22s; }
+.d3  { animation-delay: .34s; }
+.d4  { animation-delay: .46s; }
+.d5  { animation-delay: .58s; }
+.d6  { animation-delay: .70s; }
+.d7  { animation-delay: .80s; }
+.d8  { animation-delay: .90s; }
+.d9  { animation-delay: 1.00s; }
+.d10 { animation-delay: 1.15s; }
+
+/* ===================== 响应式 ===================== */
+@media (max-width: 900px) {
+    .wv-features { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 620px) {
+    .wv-top { padding: 12px 14px; gap: 10px; }
+    .wv-brand-icon { width: 34px; height: 34px; border-radius: 9px; font-size: 15px; }
+    .wv-brand-text { font-size: 15px; }
+    .wv-top-nav a { padding: 7px 12px; font-size: 13px; }
+    .wv-top-nav a i { display: none; }
+    .wv-shell { padding: 80px 16px 32px; }
+    .wv-hero { padding: 24px 0 28px; }
+    .wv-features { grid-template-columns: 1fr; gap: 12px; margin-top: 40px; }
+    .wv-actions { flex-direction: column; gap: 12px; }
+    .wv-cta, .wv-ghost { width: 100%; justify-content: center; }
+    .wv-orb.o2, .wv-orb.o3 { display: none; }
+}
+
+/* ===================== 无障碍：减少动态效果 ===================== */
+@media (prefers-reduced-motion: reduce) {
+    .wv-aurora, .wv-orb, .wv-grid, .wv-grid::before, .wv-gradient,
+    .wv-cta, .wv-cta::after, .wv-dot {
+        animation: none !important;
+    }
+    .wv-reveal { opacity: 1; transform: none; animation: none; }
+}

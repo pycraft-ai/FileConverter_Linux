@@ -92,9 +92,17 @@ def format_duration_filter(seconds):
 # 全局模板变量：CSRF token + CDN URL
 @app.context_processor
 def inject_global_vars():
+    # ai_enabled 用于前端判断是否展示智能客服入口；延迟导入避免影响应用启动
+    ai_ready = False
+    try:
+        from ai.customer_service import is_enabled as _ai_enabled
+        ai_ready = _ai_enabled()
+    except Exception:
+        ai_ready = False
     return {
         'CDN_BASE_URL': Config.CDN_BASE_URL,
         'csrf_token': generate_csrf_token,
+        'ai_enabled': ai_ready,
     }
 
 # 全局线程池，复用线程执行异步日志写入

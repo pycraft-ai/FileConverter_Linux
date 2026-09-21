@@ -1,6 +1,6 @@
 # ⚠️ 敏感配置（包含真实密码/密钥，切勿提交）
 .env
-
+.flaskenv
 # 启动脚本（各环境自配）
 start.sh
 
@@ -8,6 +8,7 @@ start.sh
 .venv/
 venv/
 env/
+
 
 # Python 缓存
 __pycache__/
@@ -52,5 +53,12 @@ flask_output.log
 # 所有测试类文件
 test_*.py
 .pytest_cache
+ai/demo_first_call.py
 
+# 容器文件
+.dockerignore
 docker/
+
+# claude 配置文件
+.claude/
+CLAUDE.md

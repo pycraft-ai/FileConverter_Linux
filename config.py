@@ -133,6 +133,25 @@ class Config:
     MAIL_PASSWORD = os.environ.get('MAIL_PASSWORD')
     MAIL_USE_SSL = True
 
+    # ===== AI 智能客服配置 =====
+    # 用于 /api/ai_chat 的 LLM 对话。AI_ENABLED 默认关闭，需在 .env 设置后才能用。
+    # 请参考你所用 API 供应商文档填写 url / apikey / model：
+    #   - OpenAI 官方:  base_url=https://api.openai.com/v1   model=gpt-4o-mini
+    #   - DeepSeek:      base_url=https://api.deepseek.com    model=deepseek-chat
+    #   - 通义千问:      base_url=https://dashscope.aliyuncs.com/compatible-mode/v1  model=qwen-plus
+    #   - 智谱 GLM:      base_url=https://open.bigmodel.cn/api/paas/v4  model=glm-4-flash
+    # 大多数国内服务商兼容 OpenAI 协议，只需替换 base_url / api_key / model 即可。
+    AI_ENABLED = os.environ.get('AI_ENABLED', '0') == '1'     # 总开关：1 开启 / 0 关闭（关闭时客服提示不可用）
+    AI_BASE_URL = os.environ.get('AI_BASE_URL')               # 兼容 OpenAI 协议的 API 地址
+    AI_API_KEY = os.environ.get('AI_API_KEY')                 # 你的 API Key
+    AI_MODEL = os.environ.get('AI_MODEL', 'gpt-4o-mini')      # 使用的模型名
+    AI_TIMEOUT = int(os.environ.get('AI_TIMEOUT', 60))        # 单次请求超时（秒）
+    AI_MAX_TOKENS = int(os.environ.get('AI_MAX_TOKENS', 800)) # 单次回答最大 token 数
+
+    # 客服限流（防刷爆 API 账单）：同一 IP 每分钟最多提问次数
+    AI_CHAT_IP_RATE_MAX = int(os.environ.get('AI_CHAT_IP_RATE_MAX', 5))
+    AI_CHAT_IP_RATE_WINDOW = int(os.environ.get('AI_CHAT_IP_RATE_WINDOW', 60))
+
     # 确保上传和输出目录存在（收紧目录权限，仅属主可读写执行）
     os.makedirs(UPLOAD_FOLDER, exist_ok=True, mode=DIR_MODE)
     os.makedirs(OUTPUT_FOLDER, exist_ok=True, mode=DIR_MODE)

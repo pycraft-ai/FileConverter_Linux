@@ -381,6 +381,11 @@ def allowed_file(filename, mode):
 
 @converter_bp.route('/')
 def index():
+    """转换主页。
+
+    未登录且首次访问（没看过欢迎页、也不是游客会话）时，
+    先引导到欢迎页 /welcome，点击「开始使用」再以游客身份回来。
+    """
     # ---- 登录用户：正常展示 ----
     if 'username' in session:
         user = DatabaseManager.get_user_by_username(session['username'])
@@ -407,8 +412,13 @@ def index():
             announcements=announcements
         )
 
+    # ---- 首次访问的访客：先展示欢迎页 ----
+    if not session.get('welcome_seen') and not session.get('is_guest'):
+        return redirect(url_for('converter.welcome'))
+
     # ---- 游客：允许访问主页，限制可体验次数 ----
     session['is_guest'] = True
+    session['welcome_seen'] = True
     session.setdefault('guest_used_times', 0)
 
     ann_success, announcements = DatabaseManager.get_active_announcements(5)
@@ -426,6 +436,24 @@ def index():
         login_type='guest',
         announcements=announcements
     )
+
+
+@converter_bp.route('/welcome')
+def welcome():
+    """欢迎页：首屏引导，含「开始使用」按钮进入游客界面"""
+    # 已登录用户无需再看欢迎页
+    if 'username' in session:
+        return redirect(url_for('converter.index'))
+    return render_template('welcome.html', guest_times=Config.GUEST_MAX_TIMES)
+
+
+@converter_bp.route('/guest')
+def start_guest():
+    """游客入口：种下游客会话后跳转转换主页（欢迎页「开始使用」按钮）"""
+    session['is_guest'] = True
+    session['welcome_seen'] = True
+    session.setdefault('guest_used_times', 0)
+    return redirect(url_for('converter.index'))
 
 
 @converter_bp.route('/privacy')
@@ -1498,6 +1526,47 @@ def user_unread_replies():
 
     count = DatabaseManager.get_unread_reply_count(username, visit_time)
     return jsonify({'count': count})
+
+
+@converter_bp.route('/api/ai_chat', methods=['POST'])
+def ai_chat():
+    """AI 智能客服：解答用户转换相关问题。
+
+    - 仅当 AI_ENABLED=1 且已配置 key/url 时可用，否则返回友好提示（降级）。
+    - 按真实 IP 限流，防止被滥用刷爆 API 账单。
+    - 复用站点全局 CSRF 防护（所有非 GET 请求均需通过 CSRF 校验）。
+    """
+    # 1) 开关检查（未配置时返回统一的"暂未开启"提示，避免前端报错）
+    from ai.customer_service import is_enabled, chat as ai_chat_call
+
+    if not is_enabled():
+        return jsonify({'success': False, 'message': '智能客服暂未开启，请稍后再试'})
+
+    # 2) 按 IP 限流（防刷）
+    ip = get_client_ip() or 'unknown'
+    allowed, _remaining = check_rate_limit(
+        'ai_chat:' + ip,
+        max_requests=Config.AI_CHAT_IP_RATE_MAX,
+        window_seconds=Config.AI_CHAT_IP_RATE_WINDOW,
+    )
+    if not allowed:
+        return jsonify({'success': False, 'message': '提问过于频繁，请稍后再试'})
+
+    # 3) 读取并校验用户输入（兼容 form 与 JSON 两种提交方式）
+    if request.is_json:
+        question = (request.get_json(silent=True) or {}).get('question', '')
+    else:
+        question = request.form.get('question', '')
+    question = (question or '').strip()
+    if not question:
+        return jsonify({'success': False, 'message': '请输入您要咨询的问题'})
+    if len(question) > 1000:
+        return jsonify({'success': False, 'message': '问题内容过长，请精简后重试'})
+
+    # 4) 调用客服大模型
+    logger.info("AI 客服提问 | ip=%s q_len=%d", ip, len(question))
+    ok, answer = ai_chat_call(question)
+    return jsonify({'success': ok, 'message': answer})
 
 
 @converter_bp.route('/dashboard')

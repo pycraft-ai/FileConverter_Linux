@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- AI 客服依赖：CSRF token（提交提问时用）+ 总开关 -->
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <meta name="ai-enabled" content="{{ 'true' if ai_enabled else 'false' }}">
+    <title>FileConverter · 让文件转换只在一次点击之间</title>
+    <meta name="description" content="FileConverter 免费在线文件转换工具，支持 PDF / Word / Excel / PPT / 图片 / OCR / 压缩等 28 种转换模式，无需安装，浏览器内即可完成。">
+    <meta name="theme-color" content="#060a18">
+    <meta name="robots" content="index, follow">
+    <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon.png') }}">
+    <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='favicon.png') }}">
+    <link rel="preconnect" href="{{ CDN_BASE_URL }}" crossorigin>
+    <link rel="stylesheet" href="{{ CDN_BASE_URL }}/font-awesome/6.4.2/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/welcome.css') }}?v=3">
+</head>
+<body class="wv-body">
+
+    <!-- ===== 背景层：极光 + 网格 + 粒子 ===== -->
+    <div class="wv-aurora" aria-hidden="true"></div>
+    <div class="wv-orbs" aria-hidden="true">
+        <span class="wv-orb o1"></span>
+        <span class="wv-orb o2"></span>
+        <span class="wv-orb o3"></span>
+    </div>
+    <div class="wv-grid" aria-hidden="true"></div>
+    <canvas id="wvParticles" aria-hidden="true"></canvas>
+
+    <div class="wv-shell">
+
+        <!-- ===== 顶栏 ===== -->
+        <header class="wv-top wv-reveal">
+            <div class="wv-brand">
+                <div class="wv-brand-icon"><i class="fas fa-file-alt"></i></div>
+                <span class="wv-brand-text">FileConverter</span>
+            </div>
+            <nav class="wv-top-nav">
+                <a href="{{ url_for('auth.login') }}"><i class="fas fa-sign-in-alt"></i> 登录</a>
+                <a class="wv-top-register" href="{{ url_for('auth.register') }}"><i class="fas fa-user-plus"></i> 注册</a>
+            </nav>
+        </header>
+
+        <!-- ===== 主视觉 ===== -->
+        <section class="wv-hero">
+
+            <div class="wv-badge wv-reveal d1">
+                <span class="wv-dot"></span>
+                免费 · 无需安装 · 浏览器内完成
+            </div>
+
+            <h1 class="wv-title wv-reveal d2">
+                <span class="wv-gradient">让文件转换</span><br>
+                <span class="wv-gradient">只在一次点击之间</span>
+            </h1>
+
+            <p class="wv-sub wv-reveal d3">
+                PDF、Word、Excel、PPT、图片、OCR、压缩解压……
+                <strong>28 种转换模式</strong> 一站搞定。上传即转，文件自动清理，不留痕。
+            </p>
+
+            <div class="wv-actions wv-reveal d4">
+                <a class="wv-cta" href="{{ url_for('converter.start_guest') }}">
+                    <span>开始使用</span>
+                    <i class="fas fa-arrow-right"></i>
+                </a>
+                <a class="wv-ghost" href="{{ url_for('auth.login') }}">
+                    <i class="fas fa-sign-in-alt"></i> 已有账号，直接登录
+                </a>
+            </div>
+
+            <p class="wv-tip wv-reveal d5">
+                <i class="fas fa-gift"></i>
+                游客可免费体验 <strong>{{ guest_times }}</strong> 次转换，无需注册
+            </p>
+
+            <!-- ===== 能力卡片 ===== -->
+            <ul class="wv-features">
+                <li class="wv-card wv-reveal d6">
+                    <div class="wv-card-icon c1"><i class="fas fa-exchange-alt"></i></div>
+                    <div class="wv-card-title">28 种转换模式</div>
+                    <div class="wv-card-desc">Office 与 PDF 互转、合并分割、加密解密、图片互转与压缩。</div>
+                </li>
+                <li class="wv-card wv-reveal d7">
+                    <div class="wv-card-icon c2"><i class="fas fa-bolt"></i></div>
+                    <div class="wv-card-title">极速转换</div>
+                    <div class="wv-card-desc">上传即处理，秒级返回结果，支持批量文件一次搞定。</div>
+                </li>
+                <li class="wv-card wv-reveal d8">
+                    <div class="wv-card-icon c3"><i class="fas fa-eye"></i></div>
+                    <div class="wv-card-title">OCR 文字识别</div>
+                    <div class="wv-card-desc">PDF 与图片中的文字一键提取，扫描件也能变成可编辑文本。</div>
+                </li>
+                <li class="wv-card wv-reveal d9">
+                    <div class="wv-card-icon c4"><i class="fas fa-shield-halved"></i></div>
+                    <div class="wv-card-title">安全自动清理</div>
+                    <div class="wv-card-desc">落盘文件加密存储，到期自动销毁，绝不长期留存你的资料。</div>
+                </li>
+            </ul>
+        </section>
+
+        <footer class="wv-footer wv-reveal d10">
+            <a href="{{ url_for('converter.privacy') }}"><i class="fas fa-shield-halved"></i> 隐私政策</a>
+            <span class="wv-sep">·</span>
+            <a href="{{ url_for('converter.contact') }}"><i class="fas fa-envelope"></i> 联系作者</a>
+        </footer>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/welcome.js') }}?v=2"></script>
+    <!-- AI 智能客服悬浮窗（可独立运行，不依赖 base.js / jQuery） -->
+    <script src="{{ url_for('static', filename='js/ai_chat.js') }}?v=2"></script>
+</body>
+</html>
