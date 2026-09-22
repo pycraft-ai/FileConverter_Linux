@@ -86,6 +86,8 @@ def format_duration_filter(seconds):
             m += 1
             s = 0
         return f'{m}分{s}秒'
+    if v < 0.01:
+        return '<0.01秒'
     return f'{v:.2f}秒'
 
 

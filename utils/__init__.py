@@ -627,6 +627,57 @@ def sanitize_filename(filename: str) -> str:
     return secure_filename(filename)
 
 
+# 文件名中不允许出现的字符：路径分隔符、Windows 保留字符、控制字符
+_FILENAME_BAD_CHARS = re.compile(r'[\\/:*?"<>|\x00-\x1f\x7f]')
+# 文件名首尾的点与空白（. / .. / 隐藏文件 / 尾随空格）
+_FILENAME_EDGE_DOTS = re.compile(r'^[.\s]+|[.\s]+$')
+# 连续空白折叠为单个下划线
+_FILENAME_SPACES = re.compile(r'\s+')
+
+
+def safe_output_name(name: str, fallback: str = '文件', max_length: int = 50) -> str:
+    """
+    生成「既安全又保留中文」的输出文件名（不含扩展名）。
+
+    注意：**不要用 werkzeug 的 secure_filename 处理中文名**。
+    它会把所有非 ASCII 字符剔除，"谢鹏辉" 会变成空串，
+    从而出现输出文件名为 "<task_id>_.pdf"、前端只显示 ".pdf" 的问题。
+
+    本函数只清除真正危险的部分，保留中文/日文等 Unicode 字符：
+    - 去掉任何目录成分（防路径穿越，如 "../../etc/passwd"）
+    - 去掉路径分隔符、Windows 保留字符、控制字符
+    - 去掉首尾的点与空白（防 ".", "..", 尾随空格）
+    - 折叠空白为下划线，并按字符数截断（防超出文件系统 255 字节上限）
+
+    Args:
+        name: 原始文件名（调用方通常已用 os.path.splitext 去掉扩展名）
+        fallback: 清理后为空时的兜底名
+        max_length: 最大字符数（中文按 3 字节算，50 字符约 150 字节，
+                    加上 task_id 前缀与后缀仍安全）
+
+    Returns:
+        str: 可安全用作文件名片段、且保留中文的字符串
+    """
+    if not name:
+        return fallback
+
+    # 1) 统一分隔符后只取最后一段，彻底丢弃目录部分
+    raw = str(name).replace('\\', '/')
+    raw = raw.split('/')[-1]
+    raw = os.path.basename(raw)
+
+    # 2) 清除危险字符与控制字符
+    raw = _FILENAME_BAD_CHARS.sub('_', raw)
+    # 3) 去首尾的点与空白，折叠内部空白
+    raw = _FILENAME_EDGE_DOTS.sub('', raw)
+    raw = _FILENAME_SPACES.sub('_', raw)
+    raw = raw.strip('._')
+
+    if not raw:
+        return fallback
+    return raw[:max_length]
+
+
 # ==============================
 # 管理员权限装饰器
 # ==============================

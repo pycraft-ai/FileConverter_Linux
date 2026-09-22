@@ -43,12 +43,15 @@ def setup_logger(name: str = 'fileconverter',
     # 同一行日志会被打印两次（自定义格式 + root 的 [INFO] 格式）。
     logger.propagate = False
 
-    # --- 终端输出格式：带颜色级别 + 模块名 ---
+    # --- 终端输出格式：短而整齐，便于和 gunicorn access log 并排扫读 ---
+    # 用 %(module)s 而不是 %(name)s，去掉 fileconverter.routes. 前缀，
+    # 单行长度显著下降（converter.convert 比 fileconverter.routes.converter.convert 短一半）。
+    # 文件日志里仍保留完整 name + 行号，需要精确定位时看 logs/app.log。
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(level)
     console_fmt = logging.Formatter(
-        fmt='%(asctime)s | %(levelname)-7s | %(name)s.%(funcName)s | %(message)s',
-        datefmt='%H:%M:%S'
+        fmt='%(asctime)s | %(levelname)-5s | %(module)s.%(funcName)s | %(message)s',
+        datefmt='%m-%d %H:%M:%S'
     )
     console_handler.setFormatter(console_fmt)
     logger.addHandler(console_handler)

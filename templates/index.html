@@ -478,7 +478,7 @@
                 </button>
             </div>
 
-            <form id="convertForm" enctype="multipart/form-data" data-convert-url="{{ url_for('converter.convert') }}">
+            <form id="convertForm" enctype="multipart/form-data" data-convert-url="{{ url_for('converter.convert') }}" data-report-duration-url="{{ url_for('converter.report_duration') }}">
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                 <input class="file-input-hidden" type="file" id="fileInput" name="file" accept="*/*" multiple>
                 <div id="filesInputArea" style="display:none;">
@@ -581,7 +581,7 @@
                     <span class="param-label"><i class="fas fa-sliders-h"></i> 压缩质量</span>
                     <input type="range" id="imgQualitySlider" min="10" max="100" value="75" style="width:140px;">
                     <span id="imgQualityVal" style="font-weight:600;color:var(--text-primary);min-width:30px;">75</span>
-                    <span style="font-size:11px;color:var(--text-muted);">% (越低体积越小)</span>
+                    <span style="font-size:11px;color:var(--text-muted);">% (越低体积越小；PNG 为无损格式，质量参数不生效)</span>
                 </div>
             </div>
 
@@ -691,5 +691,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/converter.js') }}?v=20260818"></script>
+<script src="{{ url_for('static', filename='js/converter.js') }}?v=20260922b"></script>
 {% endblock %}

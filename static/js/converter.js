@@ -11,6 +11,14 @@ $(function () {
     // 从 meta 标签读取服务端变量
     var _loginType = (document.querySelector('meta[name="login-type"]') || {}).getAttribute('content') || '';
     var _convertUrl = (document.getElementById('convertForm') || {}).getAttribute('data-convert-url') || '';
+    // 耗时上报地址：以前这里引用了一个从未声明过的 _reportDurationUrl，
+    // 访问未声明的变量会抛 ReferenceError，导致上报请求永远发不出去
+    // （表现为：页面能显示耗时，但数据库里始终是后端写入的值）。
+    var _reportDurationUrl = (document.getElementById('convertForm') || {})
+        .getAttribute('data-report-duration-url') || '/convert/report_duration';
+
+    // 版本自检：在浏览器控制台可确认是否加载到了最新脚本
+    console.log('[FileConverter] converter.js v20260922 loaded');
     var _isGuest = (document.querySelector('meta[name="is-guest"]') || {}).getAttribute('content') === 'true';
     var _guestRemaining = parseInt((document.querySelector('meta[name="guest-remaining"]') || {}).getAttribute('content')) || 0;
 
@@ -500,6 +508,7 @@ $(function () {
 
         // 记录前端计时起点：点击开始转换（含文件上传传输时间）
         _convStartTime = Date.now();
+        _convEndTime = null;
 
         $('html, body').animate({ scrollTop: $res.offset().top - 100 }, 400);
 
@@ -539,6 +548,10 @@ $(function () {
                     showLoginPrompt(response.message || '游客已用完体验次数，请登录解锁更多权益');
                     return;
                 }
+                // 计时终点：收到响应的这一刻。
+                // 不能等 handleConvertResponse 里的 600ms 进度条动画结束后再取时间，
+                // 否则每次上报都会多算 0.6 秒，平均耗时被系统性抬高。
+                _convEndTime = Date.now();
                 handleConvertResponse(response, $fill, $msg, $dl);
             },
             error: function () {
@@ -553,6 +566,17 @@ $(function () {
 
     // ===== 处理转换响应 =====
     function handleConvertResponse(response, $fill, $msg, $dl) {
+        // 收到响应的瞬间就结算「点击 → 成功」的耗时。
+        // 不能等 600ms 进度条动画结束后再算：那时若用户已经点了下一次转换，
+        // 全局计时起点已被重置，这一次的耗时就会算错。
+        var elapsedFromClick = null;
+        if (_convStartTime !== null) {
+            var endAt = _convEndTime !== null ? _convEndTime : Date.now();
+            elapsedFromClick = (endAt - _convStartTime) / 1000;
+            _convStartTime = null;
+            _convEndTime = null;
+        }
+
         var pct = 50;
         var iv = setInterval(function () {
             pct += Math.random() * 12;
@@ -563,16 +587,17 @@ $(function () {
             clearInterval(iv);
             $fill.css('width', '100%');
             if (response.success) {
-                $msg.addClass('success').html('<i class="fas fa-check-circle"></i> ' + response.message).show();
+                $msg.addClass('success').html('<i class="fas fa-check-circle"></i> ' + escapeHtml(response.message)).show();
                 if (response.download_url) {
                     $dl.attr('href', response.download_url).addClass('show');
                     if (response.display_name) {
-                        $dl.html('<i class="fas fa-download"></i> ' + response.display_name);
+                        // 文件名含用户上传时的原始名称，必须转义（防 XSS）
+                        $dl.html('<i class="fas fa-download"></i> ' + escapeHtml(response.display_name));
                     }
                 }
                 // 显示本次转换耗时小字（前端计时优先，并上报后端统一仪表盘口径）
                 if (response.duration_seconds !== undefined && response.duration_seconds !== null) {
-                    showConvertDuration(response.duration_seconds, response.output_filename);
+                    showConvertDuration(response.duration_seconds, response.output_filename, elapsedFromClick);
                 }
                 if (response.extracted_files && response.extracted_files.length > 0) {
                     renderExtractedFiles(response.extracted_files);
@@ -581,27 +606,28 @@ $(function () {
                     updateSidebarStat(response.remaining_times);
                 }
             } else {
-                $msg.addClass('error').html('<i class="fas fa-exclamation-circle"></i> ' + response.message).show();
+                $msg.addClass('error').html('<i class="fas fa-exclamation-circle"></i> ' + escapeHtml(response.message)).show();
             }
         }, 600);
     }
 
     // ===== 前端计时变量（点击开始 → 收到成功响应） =====
     var _convStartTime = null;
+    var _convEndTime = null;   // 收到响应的时刻（不含进度条动画延迟）
 
     // ===== 显示本次转换耗时 =====
-    // 优先使用前端计时（从点击按钮到收到成功响应，包含文件上传传输时间），
-    // 更贴近用户感知；若前端计时不可用，则回退使用后端返回的秒数。
-    function showConvertDuration(backendSeconds, outputFilename) {
+    // 口径：从点击「开始转换」到收到成功响应（含文件上传与响应传输），即用户实际等待时长。
+    // elapsedFromClick 已在收到响应的瞬间结算好，这里直接使用。
+    function showConvertDuration(backendSeconds, outputFilename, elapsedFromClick) {
         var $el = $('#convertDuration');
         if (!$el.length) return;
         var v;
         var usedFrontend = false;
-        if (_convStartTime !== null) {
-            v = (Date.now() - _convStartTime) / 1000;
-            _convStartTime = null; // 一次性使用，避免残留
+        if (elapsedFromClick !== null && elapsedFromClick !== undefined) {
+            v = elapsedFromClick;
             usedFrontend = true;
         } else {
+            // 极少数拿不到前端计时的情况（如页面刷新后）才回退用后端值
             v = parseFloat(backendSeconds);
         }
         if (isNaN(v) || v < 0) v = 0;
@@ -622,19 +648,55 @@ $(function () {
     }
 
     // ===== 上报实际耗时到后端（统一仪表盘口径） =====
+    // 口径固定为：从点击「开始转换」到收到成功响应，即用户实际等待时长。
+    // 用 fetch + keepalive：即使结果出来后用户立刻下载/跳转/关页，请求也能送达，
+    // 避免这条记录漏报后残留后端写入的值（那是另一个口径，会污染平均耗时）。
     function reportDurationToServer(outputFilename, durationSeconds) {
-        $.ajax({
-            url: _reportDurationUrl || ('/convert/report_duration'),
-            type: 'POST',
-            contentType: 'application/json',
-            data: JSON.stringify({
-                output_filename: outputFilename,
-                duration_seconds: durationSeconds
-            }),
-            complete: function () {
-                // 静默处理，失败不影响用户体验
-            }
+        var url = _reportDurationUrl || '/convert/report_duration';
+        var payload = JSON.stringify({
+            output_filename: outputFilename,
+            duration_seconds: durationSeconds
         });
+
+        // jQuery 兜底通道：任何异常情况下都保证请求发得出去
+        function fallbackAjax() {
+            try {
+                $.ajax({
+                    url: url,
+                    type: 'POST',
+                    contentType: 'application/json',
+                    data: payload,
+                    complete: function () {}
+                });
+            } catch (e) {
+                console.error('[耗时上报] 兜底通道也失败了', e);
+            }
+        }
+
+        try {
+            if (window.fetch) {
+                // CSRF token 由 base.js 对 window.fetch 的补丁自动注入 X-CSRF-Token
+                fetch(url, {
+                    method: 'POST',
+                    keepalive: true,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: payload
+                }).then(function (r) {
+                    // 失败也不打断用户，但在控制台留痕，便于排查
+                    if (!r || !r.ok) {
+                        console.warn('[耗时上报] 服务端返回异常，状态码:', r && r.status);
+                    }
+                }).catch(function (err) {
+                    console.warn('[耗时上报] fetch 失败，改用 ajax 重试', err);
+                    fallbackAjax();
+                });
+                return;
+            }
+        } catch (e) {
+            console.warn('[耗时上报] 发送异常，改用 ajax 重试', e);
+        }
+
+        fallbackAjax();
     }
 
     // ===== 渲染解压文件列表 =====

@@ -13,7 +13,7 @@ from converter.converter_engine import Function
 from database.db_manager import DatabaseManager
 from utils import (
     validate_file_content, get_client_ip, check_rate_limit,
-    validate_pdf_page_count, validate_image_dimensions,
+    validate_pdf_page_count, validate_image_dimensions, safe_output_name,
 )
 from utils.logger import get_logger
 from utils.encryption import (
@@ -491,9 +491,11 @@ def report_duration():
 
     ok = DatabaseManager.update_log_duration(_uname, output_filename, dur)
     if ok:
+        logger.info("耗时上报已入库 | user=%s file=%s dur=%.2fs", _uname, output_filename, dur)
         return jsonify({'success': True})
-    # 游客或未找到匹配日志：不做强校验失败（避免干扰），静默返回成功
-    return jsonify({'success': True})
+    # 未匹配到对应日志（例如记录已被清理）：静默返回成功，不干扰前端
+    logger.warning("耗时上报未匹配到日志 | user=%s file=%s dur=%.2fs", _uname, output_filename, dur)
+    return jsonify({'success': True, 'matched': False})
 
 
 @converter_bp.route('/convert', methods=['POST'])
@@ -734,7 +736,10 @@ def convert():
         result_message = '转换成功'
 
         if mode == 'pdf合并':
-            first_name = os.path.splitext(original_filenames[0])[0] if original_filenames else 'merged'
+            first_name = safe_output_name(
+                os.path.splitext(original_filenames[0])[0] if original_filenames else '',
+                fallback='合并结果',
+            )
             output_path = os.path.join(Config.OUTPUT_FOLDER, f'{task_id}_{first_name}_合并.pdf')
             result = Function.merge_pdf(input_paths, output_path)
         elif mode == 'pdf转图片':
@@ -746,7 +751,10 @@ def convert():
                 if not image_files:
                     return jsonify({'success': False, 'message': 'PDF转换失败，未生成图片'})
 
-                img_base = os.path.splitext(original_filenames[0])[0] if original_filenames else 'pdf'
+                img_base = safe_output_name(
+                    os.path.splitext(original_filenames[0])[0] if original_filenames else '',
+                    fallback='pdf',
+                )
                 zip_path = os.path.join(Config.OUTPUT_FOLDER, f'{task_id}_{img_base}_图片.zip')
                 try:
                     with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
@@ -770,7 +778,7 @@ def convert():
             for i, input_path in enumerate(input_paths):
                 orig_name = original_filenames[i] if i < len(original_filenames) else os.path.basename(input_path)
                 base_name, _ = os.path.splitext(orig_name)
-                base_name = secure_filename(base_name)
+                base_name = safe_output_name(base_name, fallback='文件')
                 output_path = os.path.join(Config.OUTPUT_FOLDER, f'{task_id}_{base_name}_{suffix}.pdf')
 
                 try:
@@ -820,7 +828,7 @@ def convert():
 
             # 用第一个文件名作为压缩包命名基础
             base_name = os.path.splitext(original_filenames[0])[0] if original_filenames else '文件'
-            base_name = secure_filename(base_name)
+            base_name = safe_output_name(base_name, fallback='文件')
             output_ext = '.tar.gz' if archive_format == 'tar.gz' else f'.{archive_format}'
             output_path = os.path.join(Config.OUTPUT_FOLDER, f'{task_id}_{base_name}_压缩包{output_ext}')
 
@@ -902,7 +910,7 @@ def convert():
             for i, input_path in enumerate(input_paths):
                 orig_name = original_filenames[i] if i < len(original_filenames) else os.path.basename(input_path)
                 base_name, _ = os.path.splitext(orig_name)
-                base_name = secure_filename(base_name)
+                base_name = safe_output_name(base_name, fallback='文件')
                 output_path = os.path.join(Config.OUTPUT_FOLDER, f'{task_id}_{base_name}_转{target_fmt.upper()}{output_ext}')
 
                 try:
@@ -947,7 +955,7 @@ def convert():
             for i, input_path in enumerate(input_paths):
                 orig_name = original_filenames[i] if i < len(original_filenames) else os.path.basename(input_path)
                 base_name, _ = os.path.splitext(orig_name)
-                base_name = secure_filename(base_name)
+                base_name = safe_output_name(base_name, fallback='文件')
                 output_path = os.path.join(Config.OUTPUT_FOLDER, f'{task_id}_{base_name}_压缩.pdf')
 
                 try:
@@ -992,7 +1000,7 @@ def convert():
             for i, input_path in enumerate(input_paths):
                 orig_name = original_filenames[i] if i < len(original_filenames) else os.path.basename(input_path)
                 base_name, _ = os.path.splitext(orig_name)
-                base_name = secure_filename(base_name)
+                base_name = safe_output_name(base_name, fallback='文件')
                 output_path = os.path.join(Config.OUTPUT_FOLDER, f'{task_id}_{base_name}_提取.pdf')
 
                 try:
@@ -1042,10 +1050,12 @@ def convert():
             for i, input_path in enumerate(input_paths):
                 orig_name = original_filenames[i] if i < len(original_filenames) else os.path.basename(input_path)
                 base_name, ext = os.path.splitext(orig_name)
-                base_name = secure_filename(base_name)
-                ext = secure_filename(ext)
-                # 保持原格式或转为 jpg
-                out_ext = ext if ext.lower() in ('.jpg', '.jpeg', '.png', '.webp') else '.jpg'
+                base_name = safe_output_name(base_name, fallback='文件')
+                # 保持原格式：png / jpeg / webp 压缩后仍是原格式，其余统一转 jpg。
+                # 注意不可用 secure_filename 处理扩展名——它会把 '.png' 变成 'png'，
+                # 导致下面的白名单判断永远不成立，所有输出都被命名成 _压缩.jpg
+                ext = ext.lower()
+                out_ext = ext if ext in ('.jpg', '.jpeg', '.png', '.webp') else '.jpg'
                 output_path = os.path.join(Config.OUTPUT_FOLDER, f'{task_id}_{base_name}_压缩{out_ext}')
 
                 try:
@@ -1089,7 +1099,7 @@ def convert():
             for i, input_path in enumerate(input_paths):
                 orig_name = original_filenames[i] if i < len(original_filenames) else os.path.basename(input_path)
                 base_name, _ = os.path.splitext(orig_name)
-                base_name = secure_filename(base_name)
+                base_name = safe_output_name(base_name, fallback='文件')
                 output_path = os.path.join(Config.OUTPUT_FOLDER, f'{task_id}_{base_name}.mp3')
                 try:
                     single_result = Function.txt_to_speech(input_path, output_path, voice=voice, rate=rate)
@@ -1154,7 +1164,7 @@ def convert():
             for i, input_path in enumerate(input_paths):
                 orig_name = original_filenames[i] if i < len(original_filenames) else os.path.basename(input_path)
                 base_name, _ = os.path.splitext(orig_name)
-                base_name = secure_filename(base_name)
+                base_name = safe_output_name(base_name, fallback='文件')
                 # OCR 模式输出扩展名跟随所选格式
                 if mode in ('PDF OCR识别', '图片OCR识别'):
                     out_ext = f'.{output_format}'

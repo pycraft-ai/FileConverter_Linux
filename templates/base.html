@@ -81,6 +81,14 @@
     .top-navbar .nb-brand {
         display: flex; align-items: center; gap: 10px;
     }
+    /* 品牌区整体可点击时（<a> 包裹图标 + 文字）：
+       <a> 默认是 inline，而 .nb-brand-icon 是块级 flex 盒子，
+       行内盒子里放块级盒子会被浏览器拆成两行（图标一行、文字一行）。
+       把 <a> 也设为 flex 容器即可恢复横向排列，并让 gap 生效。 */
+    .top-navbar .nb-brand a {
+        display: flex; align-items: center; gap: 10px;
+        color: inherit; text-decoration: none;
+    }
     .top-navbar .nb-brand-icon {
         width: 32px; height: 32px;
         background: linear-gradient(135deg, #667eea, #764ba2);
@@ -367,8 +375,10 @@
     <!-- 游客顶部导航栏 -->
     <nav class="top-navbar guest-navbar">
         <div class="nb-brand">
+            <a href="{{ url_for('converter.start_guest')}}">
             <div class="nb-brand-icon"><i class="fas fa-user-secret"></i></div>
             <span class="nb-brand-text">FileConverter 文件转换工具 · 游客体验</span>
+            </a>
         </div>
         <div class="nb-right">
             <span class="guest-tip">

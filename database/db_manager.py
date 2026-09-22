@@ -2135,7 +2135,8 @@ class DatabaseManager:
                             COUNT(*) as count,
                             SUM(CASE WHEN success = TRUE THEN 1 ELSE 0 END) as success_count,
                             SUM(CASE WHEN success = FALSE THEN 1 ELSE 0 END) as fail_count,
-                            ROUND(AVG(duration_seconds), 2) as avg_duration
+                            ROUND(AVG(CASE WHEN success = TRUE AND duration_seconds > 0
+                                           THEN duration_seconds END), 2) as avg_duration
                         FROM conversion_logs
                         WHERE username = %s AND mode = %s
                         GROUP BY mode
@@ -2148,7 +2149,8 @@ class DatabaseManager:
                             COUNT(*) as count,
                             SUM(CASE WHEN success = TRUE THEN 1 ELSE 0 END) as success_count,
                             SUM(CASE WHEN success = FALSE THEN 1 ELSE 0 END) as fail_count,
-                            ROUND(AVG(duration_seconds), 2) as avg_duration
+                            ROUND(AVG(CASE WHEN success = TRUE AND duration_seconds > 0
+                                           THEN duration_seconds END), 2) as avg_duration
                         FROM conversion_logs
                         WHERE username = %s
                         GROUP BY mode

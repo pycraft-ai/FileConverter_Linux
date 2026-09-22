@@ -227,7 +227,7 @@
                     <th>成功</th>
                     <th>失败</th>
                     <th>成功率</th>
-                    <th>平均耗时</th>
+                    <th title="仅统计成功的转换（前端上报的实际耗时，含上传传输时间）">平均耗时</th>
                 </tr>
             </thead>
             <tbody>
@@ -271,5 +271,5 @@ null
 {% endif %}
 </script>
 <div id="dashboard-filter" data-api-url="{{ url_for('converter.api_dashboard_stats') }}"></div>
-<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+<script src="{{ url_for('static', filename='js/dashboard.js') }}?v=20260922"></script>
 {% endblock %}

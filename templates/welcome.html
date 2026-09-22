@@ -15,7 +15,7 @@
     <link rel="apple-touch-icon" href="{{ url_for('static', filename='favicon.png') }}">
     <link rel="preconnect" href="{{ CDN_BASE_URL }}" crossorigin>
     <link rel="stylesheet" href="{{ CDN_BASE_URL }}/font-awesome/6.4.2/css/all.min.css">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/welcome.css') }}?v=3">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/welcome.css') }}?v=4">
 </head>
 <body class="wv-body">
 
@@ -34,8 +34,9 @@
         <!-- ===== 顶栏 ===== -->
         <header class="wv-top wv-reveal">
             <div class="wv-brand">
-                <div class="wv-brand-icon"><i class="fas fa-file-alt"></i></div>
-                <span class="wv-brand-text">FileConverter</span>
+                <a href="{{url_for('converter.welcome')}}">
+                <div class="wv-brand-icon"><i class="fas fa-file-alt"></i></div><span class="wv-brand-text">FileConverter</span>
+                </a>
             </div>
             <nav class="wv-top-nav">
                 <a href="{{ url_for('auth.login') }}"><i class="fas fa-sign-in-alt"></i> 登录</a>

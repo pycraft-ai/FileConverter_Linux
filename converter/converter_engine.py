@@ -1501,7 +1501,9 @@ ul, ol {{ padding-left: 2em; }}
                     img = img.convert('RGB')
                 save_kwargs = {'quality': quality, 'optimize': True, 'subsampling': '4:2:0'}
             elif fmt == 'png':
-                save_kwargs = {'optimize': True}
+                # PNG 是无损格式，quality 参数不适用；
+                # 用最高压缩级别 + optimize，尽量在无损前提下减小体积
+                save_kwargs = {'optimize': True, 'compress_level': 9}
             elif fmt == 'webp':
                 if img.mode in ('RGBA', 'LA'):
                     pass

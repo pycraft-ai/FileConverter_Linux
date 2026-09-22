@@ -17,6 +17,7 @@ $(function () {
             if (s === 60) { m += 1; s = 0; }
             return m + '分' + s + '秒';
         }
+        if (v < 0.01) return '<0.01秒';
         return v.toFixed(2) + '秒';
     }
 
