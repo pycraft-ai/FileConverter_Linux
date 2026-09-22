@@ -136,6 +136,8 @@ $(function () {
             'directory': '选择文件夹中的所有图片文件'
         };
         var modeHints = {
+            'doc与docx互转': '上传 .doc 或 .docx，自动转换为另一种格式',
+            'xls与xlsx互转': '上传 .xls 或 .xlsx，自动转换为另一种格式',
             '文件压缩': '选择要压缩的文件（支持 ZIP/TAR.GZ/7Z）',
             '文件解压': '上传压缩包（支持 ZIP/TAR.GZ/7Z）',
             '压缩包解密': '上传加密的压缩包（ZIP 或 7Z 格式）'
@@ -492,19 +494,198 @@ $(function () {
         });
     }
 
+    // ===== 转换中 UI：3D 装载动画 + 圆形进度环 + 趣味文案轮播 =====
+
+    // ---------- 圆形进度环 ----------
+    // 进度来源分两段：
+    //   1) 上传阶段：xhr.upload 的真实进度，映射到 0~50%；
+    //   2) 服务端处理阶段：没有真实进度可拿（后端同步处理），
+    //      用目标值缓慢逼近的方式到 95%，收到响应后再补满 100%。
+    var CP_RADIUS = 52;
+    var CP_CIRCUMFERENCE = 2 * Math.PI * CP_RADIUS;   // 与 style.css 的 stroke-dasharray 对应
+    var CP_UPLOAD_SHARE = 50;                          // 上传阶段占整体进度的比例
+    var CP_PROCESSING_CEIL = 95;                       // 处理阶段上限（留一点给"收尾"）
+    var _cpValue = 0;        // 当前显示值
+    var _cpTarget = 0;       // 目标值（缓动逼近）
+    var _cpProcessing = false;
+    var _uploadingHint = false;   // 是否正处于"正在上传 x%"文案状态
+    var _cpTimer = null;
+    var _cpHideTimer = null;
+
+    function renderCircle(value) {
+        var v = Math.max(0, Math.min(100, value));
+        var bar = document.getElementById('cpBar');
+        if (bar) {
+            bar.style.strokeDashoffset = String(CP_CIRCUMFERENCE * (1 - v / 100));
+        }
+        var num = document.getElementById('cpValue');
+        if (num) {
+            num.textContent = String(Math.round(v));
+        }
+        var ring = document.getElementById('circleProgress');
+        if (ring) {
+            ring.setAttribute('aria-valuenow', String(Math.round(v)));
+        }
+    }
+
+    function startCircleProgress() {
+        _cpValue = 0;
+        _cpTarget = 0;
+        _cpProcessing = false;
+        renderCircle(0);
+        if (_cpTimer) return;
+        _cpTimer = setInterval(function () {
+            // 处理阶段：目标值缓慢爬升（越接近上限推进越慢）
+            if (_cpProcessing && _cpTarget < CP_PROCESSING_CEIL) {
+                _cpTarget = Math.min(CP_PROCESSING_CEIL, _cpTarget + 0.5);
+            }
+            if (Math.abs(_cpTarget - _cpValue) < 0.05) return;
+            // 指数缓动，避免数字与圆弧生硬跳动
+            _cpValue += (_cpTarget - _cpValue) * 0.12;
+            renderCircle(_cpValue);
+        }, 60);
+    }
+
+    // 上传进度（真实值，映射到前 50%）
+    function setCircleUploadProgress(loaded, total) {
+        if (!total) return;
+        var pct = loaded / total * CP_UPLOAD_SHARE;
+        if (pct > _cpTarget) {
+            _cpTarget = pct;
+        }
+        // 上传阶段可能很久（大文件遇慢网络时可达数分钟），此时显示真实上传
+        // 进度比轮播趣味文案更有信息量——用户能确认"没卡死"。上传结束后自动恢复轮播。
+        if (!_uploadingHint) {
+            _uploadingHint = true;
+            if (_funTipTimer) { clearInterval(_funTipTimer); _funTipTimer = null; }
+            $('#funTip').show();
+            $('#funTipEmoji').text('📤');
+        }
+        var mb = 1024 * 1024;
+        var realPct = Math.min(100, Math.round(loaded / total * 100));
+        $('#funTipText').text(
+            '正在上传 ' + realPct + '%（' + (loaded / mb).toFixed(1) +
+            ' / ' + (total / mb).toFixed(1) + ' MB）'
+        );
+    }
+
+    // 上传完成，进入服务端处理阶段
+    function enterProcessingStage() {
+        _cpProcessing = true;
+        if (_cpTarget < 12) {
+            _cpTarget = 12;   // 起步时给个可见进度，避免长时间停在 0
+        }
+        // 上传结束：把"正在上传 x%"换回趣味文案轮播
+        if (_uploadingHint) {
+            _uploadingHint = false;
+            renderFunTip();
+            startFunTipRotation();
+        }
+    }
+
+    // 收尾：成功时补满，失败/中断则停在当前值
+    function finishCircleProgress(success) {
+        if (_cpTimer) { clearInterval(_cpTimer); _cpTimer = null; }
+        if (success) {
+            renderCircle(100);
+        }
+    }
+
+    // ---------- 趣味文案轮播 ----------
+    // 每项为 [表情, 文案]；转换进行时每 2.6 秒淡出换下一条，缓解等待焦虑。
+    var FUN_TIPS = [
+        ['✨', '稍等一下下，马上就好～'],
+        ['🚀', '正在全速处理，请系好安全带'],
+        ['📦', '正在打包你的文件，别眨眼'],
+        ['☕', '泡杯咖啡的功夫，就快好了'],
+        ['🐢', '文件有点大，慢慢来比较快'],
+        ['🧠', '正在努力思考中……'],
+        ['🔧', '正在拧紧最后几颗螺丝'],
+        ['🍀', '好运正在加载，就差一点点']
+    ];
+    var FUN_TIP_INTERVAL = 2600;
+    var _funTipTimer = null;
+    var _funTipSwapTimer = null;
+    var _funTipIndex = 0;
+
+    function renderFunTip() {
+        var item = FUN_TIPS[_funTipIndex % FUN_TIPS.length];
+        $('#funTipEmoji').text(item[0]);
+        $('#funTipText').text(item[1]);
+    }
+
+    // 启动趣味文案轮播（单独抽出，"上传阶段"结束后要恢复它）
+    function startFunTipRotation() {
+        $('#funTip').show();
+        if (_funTipTimer) { clearInterval(_funTipTimer); }
+        _funTipTimer = setInterval(function () {
+            // 先淡出旧文案，换字后再淡入，避免生硬跳变
+            $('#funTipEmoji, #funTipText').addClass('swap');
+            _funTipSwapTimer = setTimeout(function () {
+                _funTipIndex++;
+                renderFunTip();
+                $('#funTipEmoji, #funTipText').removeClass('swap');
+            }, 280);
+        }, FUN_TIP_INTERVAL);
+    }
+
+    // 开始"转换中"的视觉反馈：显示 3D 装载动画 + 进度环 + 启动文案轮播
+    function startLoadingUI() {
+        if (_cpHideTimer) { clearTimeout(_cpHideTimer); _cpHideTimer = null; }
+        $('#loadingPanel').show();
+        startCircleProgress();
+
+        _uploadingHint = false;
+        _funTipIndex = 0;
+        renderFunTip();
+        startFunTipRotation();
+    }
+
+    // 结束"转换中"的视觉反馈：收起动画/进度环/文案，并清理定时器。
+    // success 为 true 时先把进度环补满、稍作停留再收起，让"完成"有明确的视觉落点。
+    function stopLoadingUI(success) {
+        if (_funTipTimer) { clearInterval(_funTipTimer); _funTipTimer = null; }
+        if (_funTipSwapTimer) { clearTimeout(_funTipSwapTimer); _funTipSwapTimer = null; }
+        _uploadingHint = false;
+        // 复位，避免下次开始时残留半透明/位移状态
+        $('#funTipEmoji, #funTipText').removeClass('swap');
+        $('#funTip').hide();
+
+        finishCircleProgress(success === true);
+        if (_cpHideTimer) { clearTimeout(_cpHideTimer); _cpHideTimer = null; }
+        if (success === true) {
+            _cpHideTimer = setTimeout(function () {
+                $('#loadingPanel').hide();
+                _cpHideTimer = null;
+            }, 320);
+        } else {
+            $('#loadingPanel').hide();
+        }
+    }
+
     // ===== 核心：AJAX 提交任务 =====
     function doConvert(formData) {
         var $res = $('#resultArea');
-        var $fill = $('#progressFill');
         var $msg = $('#resultMessage');
         var $dl = $('#downloadBtn');
         var $btn = $('#convertBtn');
 
+        // 防御：mode 缺失说明这不是一次正常提交（例如"重复文件确认"/"输入密码"
+        // 弹窗复用了已丢失的 FormData）。这种空请求发到后端只能得到
+        // "无效的转换模式"，徒增困惑，直接拦下并提示刷新。
+        if (!formData || typeof formData.get !== 'function' || !formData.get('mode')) {
+            $res.addClass('show');
+            $msg.addClass('error')
+                .html('<i class="fas fa-exclamation-circle"></i> 页面状态已失效，请刷新页面后重新提交')
+                .show();
+            return;
+        }
+
         $res.addClass('show');
-        $fill.css('width', '5%');
         $msg.hide().removeClass('success error');
         $dl.removeClass('show');
         $btn.prop('disabled', true);
+        startLoadingUI();
 
         // 记录前端计时起点：点击开始转换（含文件上传传输时间）
         _convStartTime = Date.now();
@@ -520,10 +701,15 @@ $(function () {
             contentType: false,
             xhr: function () {
                 var xhr = new XMLHttpRequest();
+                // 上传阶段：真实进度，驱动进度环前 50%
                 xhr.upload.addEventListener('progress', function (e) {
                     if (e.lengthComputable) {
-                        $fill.css('width', Math.round(e.loaded / e.total * 50) + '%');
+                        setCircleUploadProgress(e.loaded, e.total);
                     }
+                });
+                // 上传完成 → 进入服务端处理阶段（进度改为缓动爬升）
+                xhr.upload.addEventListener('load', function () {
+                    enterProcessingStage();
                 });
                 return xhr;
             },
@@ -531,12 +717,14 @@ $(function () {
                 if (response.duplicate_warning) {
                     $btn.prop('disabled', false);
                     $res.removeClass('show');
+                    stopLoadingUI(false);
                     showDuplicateModal(response.message);
                     return;
                 }
                 if (response.need_password) {
                     $btn.prop('disabled', false);
                     $res.removeClass('show');
+                    stopLoadingUI(false);
                     $('#passwordModalMsg').text(response.message || '检测到该压缩文件加密，请输入密码');
                     $('#passwordModalInput').val('');
                     $('#passwordModal').fadeIn(150);
@@ -545,18 +733,34 @@ $(function () {
                 if (response.need_login) {
                     $btn.prop('disabled', false);
                     $res.removeClass('show');
+                    stopLoadingUI(false);
                     showLoginPrompt(response.message || '游客已用完体验次数，请登录解锁更多权益');
                     return;
                 }
                 // 计时终点：收到响应的这一刻。
-                // 不能等 handleConvertResponse 里的 600ms 进度条动画结束后再取时间，
-                // 否则每次上报都会多算 0.6 秒，平均耗时被系统性抬高。
+                // 不能等结果渲染动画结束后再取时间，
+                // 否则用户若已点击下一次转换，全局计时起点会被重置，这一次的耗时就错了。
                 _convEndTime = Date.now();
-                handleConvertResponse(response, $fill, $msg, $dl);
+                // 响应已到：成功则进度环补满后收起，失败则直接收起
+                stopLoadingUI(response.success === true);
+                handleConvertResponse(response, $msg, $dl);
             },
-            error: function () {
-                $fill.css('width', '100%').css('background', '#ef4444');
-                $msg.addClass('error').html('<i class="fas fa-times-circle"></i> 网络错误，请重试').show();
+            error: function (jqXHR) {
+                stopLoadingUI(false);
+                // 优先显示服务端返回的 JSON 提示（如 CSRF 校验失败 403）。
+                // 这类错误请求其实已经到达服务端，若统一按"网络错误"兜底，
+                // 用户与排查者都会误以为是断网，完全找不到方向。
+                var msg = '网络错误，请重试';
+                if (jqXHR && jqXHR.responseJSON && jqXHR.responseJSON.message) {
+                    msg = jqXHR.responseJSON.message;
+                } else if (jqXHR && jqXHR.status === 413) {
+                    msg = '上传内容过大，请压缩文件或分批上传';
+                } else if (jqXHR && jqXHR.status === 403) {
+                    msg = '登录状态已失效，请刷新页面后重试';
+                } else if (jqXHR && jqXHR.status === 0) {
+                    msg = '请求被中断，请检查网络后重试';
+                }
+                $msg.addClass('error').html('<i class="fas fa-times-circle"></i> ' + escapeHtml(msg)).show();
             },
             complete: function () {
                 $btn.prop('disabled', false);
@@ -565,9 +769,9 @@ $(function () {
     }
 
     // ===== 处理转换响应 =====
-    function handleConvertResponse(response, $fill, $msg, $dl) {
+    function handleConvertResponse(response, $msg, $dl) {
         // 收到响应的瞬间就结算「点击 → 成功」的耗时。
-        // 不能等 600ms 进度条动画结束后再算：那时若用户已经点了下一次转换，
+        // 不能等结果渲染后再算：那时若用户已经点了下一次转换，
         // 全局计时起点已被重置，这一次的耗时就会算错。
         var elapsedFromClick = null;
         if (_convStartTime !== null) {
@@ -577,38 +781,28 @@ $(function () {
             _convEndTime = null;
         }
 
-        var pct = 50;
-        var iv = setInterval(function () {
-            pct += Math.random() * 12;
-            if (pct >= 95) { pct = 95; clearInterval(iv); }
-            $fill.css('width', pct + '%');
-        }, 250);
-        setTimeout(function () {
-            clearInterval(iv);
-            $fill.css('width', '100%');
-            if (response.success) {
-                $msg.addClass('success').html('<i class="fas fa-check-circle"></i> ' + escapeHtml(response.message)).show();
-                if (response.download_url) {
-                    $dl.attr('href', response.download_url).addClass('show');
-                    if (response.display_name) {
-                        // 文件名含用户上传时的原始名称，必须转义（防 XSS）
-                        $dl.html('<i class="fas fa-download"></i> ' + escapeHtml(response.display_name));
-                    }
+        if (response.success) {
+            $msg.addClass('success').html('<i class="fas fa-check-circle"></i> ' + escapeHtml(response.message)).show();
+            if (response.download_url) {
+                $dl.attr('href', response.download_url).addClass('show');
+                if (response.display_name) {
+                    // 文件名含用户上传时的原始名称，必须转义（防 XSS）
+                    $dl.html('<i class="fas fa-download"></i> ' + escapeHtml(response.display_name));
                 }
-                // 显示本次转换耗时小字（前端计时优先，并上报后端统一仪表盘口径）
-                if (response.duration_seconds !== undefined && response.duration_seconds !== null) {
-                    showConvertDuration(response.duration_seconds, response.output_filename, elapsedFromClick);
-                }
-                if (response.extracted_files && response.extracted_files.length > 0) {
-                    renderExtractedFiles(response.extracted_files);
-                }
-                if (response.remaining_times !== undefined && response.remaining_times !== null) {
-                    updateSidebarStat(response.remaining_times);
-                }
-            } else {
-                $msg.addClass('error').html('<i class="fas fa-exclamation-circle"></i> ' + escapeHtml(response.message)).show();
             }
-        }, 600);
+            // 显示本次转换耗时小字（前端计时优先，并上报后端统一仪表盘口径）
+            if (response.duration_seconds !== undefined && response.duration_seconds !== null) {
+                showConvertDuration(response.duration_seconds, response.output_filename, elapsedFromClick);
+            }
+            if (response.extracted_files && response.extracted_files.length > 0) {
+                renderExtractedFiles(response.extracted_files);
+            }
+            if (response.remaining_times !== undefined && response.remaining_times !== null) {
+                updateSidebarStat(response.remaining_times);
+            }
+        } else {
+            $msg.addClass('error').html('<i class="fas fa-exclamation-circle"></i> ' + escapeHtml(response.message)).show();
+        }
     }
 
     // ===== 前端计时变量（点击开始 → 收到成功响应） =====
@@ -806,7 +1000,7 @@ $(function () {
             '<div class="modal-body">' +
             '<p style="margin-bottom:10px;"><i class="fas fa-exclamation-circle" style="color:#f59e0b;margin-right:6px;"></i>' + escapeHtml(msg || '游客已用完体验次数') + '</p>' +
             '<ul style="padding-left:20px;font-size:13px;line-height:2;color:var(--text-secondary);">' +
-            '<li>无限次使用全部 28 种转换功能</li>' +
+            '<li>无限次使用全部 31 种转换功能</li>' +
             '<li>查看转换记录与数据分析仪表盘</li>' +
             '<li>在线联系作者，享受更多服务</li>' +
             '</ul>' +
@@ -831,6 +1025,12 @@ $(function () {
         $('#duplicateModal').fadeIn(150);
     };
     $('#duplicateConfirm').on('click', function () {
+        // 表单数据丢失时（页面状态异常 / 历史弹窗残留）无法继续，明确提示而不是发空请求
+        if (!window._lastFormData) {
+            $('#duplicateModal').fadeOut(100);
+            showToast('页面状态已失效，请重新选择文件后再试');
+            return;
+        }
         var dontAsk = $('#dontAskCheck').is(':checked');
         if (dontAsk) window._lastFormData.append('dont_ask_again', '1');
         window._lastFormData.append('confirmed', '1');
@@ -844,6 +1044,11 @@ $(function () {
     $('#passwordModalConfirm').on('click', function () {
         var pwd = $('#passwordModalInput').val().trim();
         if (!pwd) { showToast('请输入密码'); return; }
+        if (!window._lastFormData) {
+            $('#passwordModal').fadeOut(100);
+            showToast('页面状态已失效，请重新选择文件后再试');
+            return;
+        }
         $('#passwordModal').fadeOut(100);
         window._lastFormData.append('password', pwd);
         window._lastFormData.append('confirmed', '1');

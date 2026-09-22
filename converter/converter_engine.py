@@ -35,6 +35,9 @@ SLIDE_HEIGHT_INCHES = 9              # PPT 幻灯片高度（16:9）
 LIBREOFFICE_TIMEOUT_SECONDS = int(os.environ.get('LIBREOFFICE_TIMEOUT_SECONDS', 120))  # 单次转换硬超时
 LIBREOFFICE_MAX_RSS_MB = int(os.environ.get('LIBREOFFICE_MAX_RSS_MB', 1024))           # 进程地址空间上限(MB)
 LIBREOFFICE_CPU_TIME = int(os.environ.get('LIBREOFFICE_CPU_TIME', 120))                # CPU 时间上限(秒)
+# Office 格式互转（尤其 xlsx→xls 这类二进制导出）需要更大的地址空间，
+# 1GB 上限会导致 LibreOffice 线程创建失败（osl::Thread::create failed）而崩溃。
+LIBREOFFICE_FORMAT_MAX_RSS_MB = int(os.environ.get('LIBREOFFICE_FORMAT_MAX_RSS_MB', 2048))
 
 # LibreOffice 转换锁（LibreOffice 实例不宜并发）
 _libreoffice_lock = threading.Lock()
@@ -57,15 +60,17 @@ class TimeoutError(Exception):
 
 
 # LibreOffice 26.x 过滤器名称映射（简单扩展名 → 完整过滤器名）
-# pdf 和 html 简写兼容，pptx/docx/xlsx 必须使用完整格式
+# pdf 和 html 简写兼容，pptx/docx/xlsx/doc/xls 必须使用完整格式
 _LO_FILTER_MAP = {
     'pptx': 'pptx:Impress MS PowerPoint 2007 XML',
     'docx': 'docx:MS Word 2007 XML',
+    'doc':  'doc:MS Word 97',
     'xlsx': 'xlsx:Calc MS Excel 2007 XML',
+    'xls':  'xls:MS Excel 97',
 }
 
 
-def _libreoffice_convert(input_path, output_dir, convert_filter=None):
+def _libreoffice_convert(input_path, output_dir, convert_filter=None, max_rss_mb=None):
     """
     使用 LibreOffice 进行文件格式转换（WSL/Linux 替代 COM 方案）
 
@@ -76,6 +81,7 @@ def _libreoffice_convert(input_path, output_dir, convert_filter=None):
         input_path: 源文件路径
         output_dir: 输出目录
         convert_filter: 可选的导出过滤器（如 "pdf", "docx"），默认 pdf
+        max_rss_mb: 可选的地址空间上限(MB)，默认使用 LIBREOFFICE_MAX_RSS_MB
 
     Returns:
         输出文件路径，失败返回 None
@@ -102,7 +108,7 @@ def _libreoffice_convert(input_path, output_dir, convert_filter=None):
                 pass
             try:
                 # 地址空间上限（字节）
-                rss_bytes = LIBREOFFICE_MAX_RSS_MB * 1024 * 1024
+                rss_bytes = (max_rss_mb or LIBREOFFICE_MAX_RSS_MB) * 1024 * 1024
                 resource.setrlimit(resource.RLIMIT_AS, (rss_bytes, rss_bytes))
                 # CPU 时间上限（秒）：超出后内核发送 SIGXCPU
                 resource.setrlimit(resource.RLIMIT_CPU, (LIBREOFFICE_CPU_TIME, LIBREOFFICE_CPU_TIME))
@@ -220,6 +226,43 @@ class Function:
             except Exception as e:
                 logger.error("Word转PDF失败: %s", e)
                 return False
+
+    @staticmethod
+    def _office_format_convert(input_path, output_path, allowed_exts):
+        """
+        Office 二进制/OOXML 格式互转的通用实现（doc↔docx、xls↔xlsx）。
+        目标格式由 output_path 的扩展名决定，通过 LibreOffice 导出过滤器完成。
+        """
+        target_ext = os.path.splitext(output_path)[1].lstrip('.').lower()
+        if target_ext not in allowed_exts:
+            logger.error("Office格式互转失败：不支持的目标格式 %s", target_ext)
+            return False
+        with _libreoffice_lock:
+            try:
+                output_dir = os.path.dirname(os.path.abspath(output_path))
+                # 使用更宽松的地址空间上限：xls 等二进制导出需要更多虚拟内存
+                result = _libreoffice_convert(
+                    input_path, output_dir, target_ext,
+                    max_rss_mb=LIBREOFFICE_FORMAT_MAX_RSS_MB,
+                )
+                if result and os.path.exists(result):
+                    if result != os.path.abspath(output_path):
+                        shutil.move(result, output_path)
+                    return True
+                return False
+            except Exception as e:
+                logger.error("Office格式互转失败: %s", e)
+                return False
+
+    @staticmethod
+    def word_format_convert(wordPath, wordPathOut):
+        """Word 格式互转：.doc ↔ .docx（目标格式由输出路径扩展名决定）"""
+        return Function._office_format_convert(wordPath, wordPathOut, ('doc', 'docx'))
+
+    @staticmethod
+    def excel_format_convert(excelPath, excelPathOut):
+        """Excel 格式互转：.xls ↔ .xlsx（目标格式由输出路径扩展名决定）"""
+        return Function._office_format_convert(excelPath, excelPathOut, ('xls', 'xlsx'))
 
     @staticmethod
     def md_to_pdf(mdPath, pdfPath):

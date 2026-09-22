@@ -17,7 +17,7 @@ class Config:
     UPLOAD_MAX_SIZE = int(os.environ.get('UPLOAD_MAX_SIZE', 50))  # 单个文件大小上限（MB）
     MAX_CONTENT_LENGTH = 100 * 1024 * 1024  # 最大上传 100MB
     ALLOWED_EXTENSIONS = {
-        'docx', 'pdf', 'jpg', 'jpeg', 'png', 'csv', 'xlsx', 'ppt', 'pptx', 'txt', 'md', 'html', 'htm'
+        'doc', 'docx', 'pdf', 'jpg', 'jpeg', 'png', 'csv', 'xlsx', 'ppt', 'pptx', 'txt', 'md', 'html', 'htm'
     }
 
     # MySQL 数据库配置（添加连接超时和自动重连）

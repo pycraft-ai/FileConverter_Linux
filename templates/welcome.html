@@ -7,7 +7,7 @@
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <meta name="ai-enabled" content="{{ 'true' if ai_enabled else 'false' }}">
     <title>FileConverter · 让文件转换只在一次点击之间</title>
-    <meta name="description" content="FileConverter 免费在线文件转换工具，支持 PDF / Word / Excel / PPT / 图片 / OCR / 压缩等 28 种转换模式，无需安装，浏览器内即可完成。">
+    <meta name="description" content="FileConverter 免费在线文件转换工具，支持 PDF / Word / Excel / PPT / 图片 / OCR / 压缩等 31 种转换模式，无需安装，浏览器内即可完成。">
     <meta name="theme-color" content="#060a18">
     <meta name="robots" content="index, follow">
     <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon.png') }}">
@@ -59,7 +59,7 @@
 
             <p class="wv-sub wv-reveal d3">
                 PDF、Word、Excel、PPT、图片、OCR、压缩解压……
-                <strong>28 种转换模式</strong> 一站搞定。上传即转，文件自动清理，不留痕。
+                <strong>31 种转换模式</strong> 一站搞定。上传即转，文件自动清理，不留痕。
             </p>
 
             <div class="wv-actions wv-reveal d4">
@@ -81,7 +81,7 @@
             <ul class="wv-features">
                 <li class="wv-card wv-reveal d6">
                     <div class="wv-card-icon c1"><i class="fas fa-exchange-alt"></i></div>
-                    <div class="wv-card-title">28 种转换模式</div>
+                    <div class="wv-card-title">31 种转换模式</div>
                     <div class="wv-card-desc">Office 与 PDF 互转、合并分割、加密解密、图片互转与压缩。</div>
                 </li>
                 <li class="wv-card wv-reveal d7">
@@ -111,6 +111,6 @@
 
     <script src="{{ url_for('static', filename='js/welcome.js') }}?v=2"></script>
     <!-- AI 智能客服悬浮窗（可独立运行，不依赖 base.js / jQuery） -->
-    <script src="{{ url_for('static', filename='js/ai_chat.js') }}?v=2"></script>
+    <script src="{{ url_for('static', filename='js/ai_chat.js') }}?v={{ static_ver('js/ai_chat.js') if static_ver is defined else '3' }}"></script>
 </body>
 </html>

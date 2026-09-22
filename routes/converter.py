@@ -27,7 +27,7 @@ logger = get_logger(__name__)
 
 # 模式配置
 MODE_LIST = [
-    'word转pdf', 'pdf转word', '图片转pdf', 'pdf转图片',
+    'word转pdf', 'doc与docx互转', 'xls与xlsx互转', 'pdf转word', '图片转pdf', 'pdf转图片',
     'csv转excel', 'excel转csv', 'PDF OCR识别', '图片OCR识别',
     '图片转ppt', 'pdf合并', 'md转pdf', 'excel转pdf', 'ppt转pdf', 'html转pdf',
     'pdf加密', 'pdf解密',
@@ -38,6 +38,8 @@ MODE_LIST = [
 
 MODE_INPUT_TYPE = {
     'word转pdf': 'file',
+    'doc与docx互转': 'file',
+    'xls与xlsx互转': 'file',
     'pdf转word': 'file',
     '图片转pdf': 'directory',
     'pdf转图片': 'file',
@@ -69,7 +71,9 @@ MODE_INPUT_TYPE = {
 }
 
 MODE_EXTENSIONS = {
-    'word转pdf': '.docx',
+    'word转pdf': '.docx,.doc',
+    'doc与docx互转': '.doc,.docx',
+    'xls与xlsx互转': '.xls,.xlsx',
     'pdf转word': '.pdf',
     '图片转pdf': None,
     'pdf转图片': '.pdf',
@@ -102,6 +106,8 @@ MODE_EXTENSIONS = {
 
 MODE_OUTPUT_EXT = {
     'word转pdf': '.pdf',
+    'doc与docx互转': None,   # 动态：.doc → .docx / .docx → .doc
+    'xls与xlsx互转': None,   # 动态：.xls → .xlsx / .xlsx → .xls
     'pdf转word': '.docx',
     '图片转pdf': '.pdf',
     'pdf转图片': None,
@@ -134,6 +140,8 @@ MODE_OUTPUT_EXT = {
 
 MODE_TO_FUNCTION = {
     'word转pdf': 'word_to_pdf',
+    'doc与docx互转': 'word_format_convert',
+    'xls与xlsx互转': 'excel_format_convert',
     'pdf转word': 'pdf_to_word',
     '图片转pdf': 'image_to_pdf',
     'pdf转图片': 'pdf_to_image',
@@ -189,7 +197,7 @@ def _validate_uploaded_file(file, mode: str) -> str | None:
     name_without_ext, dot, ext = file.filename.rpartition('.')
     if '.' in name_without_ext:
         inner_ext = name_without_ext.rsplit('.', 1)[1].lower()
-        allowed_exts = {'docx', 'pdf', 'jpg', 'jpeg', 'png', 'bmp', 'gif', 'tiff', 'webp',
+        allowed_exts = {'doc', 'docx', 'pdf', 'jpg', 'jpeg', 'png', 'bmp', 'gif', 'tiff', 'webp',
                         'csv', 'xlsx', 'xls', 'pptx', 'ppt', 'txt', 'md', 'html', 'htm'}
         if inner_ext in allowed_exts and inner_ext != ext.lower():
             return '检测到文件扩展名伪装，已拒绝'
@@ -502,7 +510,30 @@ def report_duration():
 def convert():
     mode = request.form.get('mode', '')
     if mode not in MODE_LIST:
-        logger.warning("无效的转换模式 | user=%s mode=%s", session.get('username'), repr(mode))
+        # mode 为空通常有两种截然不同的原因：
+        #   1. 前端表单没带上 mode（正常点击流程会在前端就拦住空值）；
+        #   2. 请求体根本没到/为空（如重复文件确认弹窗复用了丢失的 FormData、
+        #      请求被代理截断等），此时 request.form 解析出来是空字典。
+        # 只记 mode='' 无法区分，所以把请求形状一并记下来便于定位。
+        try:
+            _form_keys = list(request.form.keys())
+        except Exception:
+            _form_keys = ['<解析失败>']
+        logger.warning(
+            "无效的转换模式 | user=%s mode=%s content_type=%s form_keys=%s "
+            "content_length=%s referer=%s ua=%s",
+            session.get('username'), repr(mode),
+            request.content_type, _form_keys, request.content_length,
+            request.referrer, (request.user_agent.string or '')[:80],
+        )
+        # 正常点击流程前端已拦住空 mode，能走到这里基本是"请求体没完整送达"
+        # （上传中途断开/被代理截断，multipart 解析出来是空的）。
+        # 旧文案"无效的转换模式"会让人以为是选错了功能，完全指错方向。
+        if not _form_keys or _form_keys == ['<解析失败>']:
+            return jsonify({
+                'success': False,
+                'message': '上传未完成或数据不完整（可能上传中途断开），请检查网络后重试',
+            })
         return jsonify({'success': False, 'message': '无效的转换模式'})
 
     # ---- 判断身份：登录用户 / 游客 ----
@@ -897,6 +928,67 @@ def convert():
             output_path = os.path.join(Config.OUTPUT_FOLDER, f'{task_id}_已解密.zip')
             result = Function.decrypt_archive(input_paths[0], output_path, password)
             result_message = '已去除密码保护'
+
+        elif mode in ('doc与docx互转', 'xls与xlsx互转'):
+            # 格式互转：目标格式跟随输入格式（.doc↔.docx / .xls↔.xlsx），
+            # 因此每个文件的输出扩展名可能不同，需逐文件确定。
+            pair_exts = ('doc', 'docx') if mode == 'doc与docx互转' else ('xls', 'xlsx')
+            conv_func = (Function.word_format_convert if mode == 'doc与docx互转'
+                         else Function.excel_format_convert)
+
+            output_paths = []
+            failed_files = []
+            for i, input_path in enumerate(input_paths):
+                orig_name = original_filenames[i] if i < len(original_filenames) else os.path.basename(input_path)
+                base_name, in_ext = os.path.splitext(orig_name)
+                base_name = safe_output_name(base_name, fallback='文件')
+                in_ext = in_ext.lower().lstrip('.')
+
+                # 旧格式 → 新格式，新格式 → 旧格式
+                if in_ext == pair_exts[0]:
+                    target_ext = pair_exts[1]
+                elif in_ext == pair_exts[1]:
+                    target_ext = pair_exts[0]
+                else:
+                    logger.error("格式互转失败：不支持的输入格式 | mode=%s file=%s", mode, orig_name)
+                    failed_files.append(orig_name)
+                    continue
+
+                output_path = os.path.join(
+                    Config.OUTPUT_FOLDER, f'{task_id}_{base_name}.{target_ext}'
+                )
+
+                try:
+                    single_result = conv_func(input_path, output_path)
+                    if single_result and os.path.exists(output_path):
+                        output_paths.append(output_path)
+                    else:
+                        failed_files.append(orig_name)
+                except Exception as conv_err:
+                    logger.error("格式互转失败 | mode=%s file=%s err=%s", mode, orig_name, conv_err)
+                    failed_files.append(orig_name)
+
+            if not output_paths:
+                result = False
+            else:
+                result = True
+                if len(output_paths) == 1:
+                    output_path = output_paths[0]
+                else:
+                    zip_name = f'{task_id}_转换结果.zip'
+                    zip_path = os.path.join(Config.OUTPUT_FOLDER, zip_name)
+                    try:
+                        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                            for out_path in output_paths:
+                                zipf.write(out_path, os.path.basename(out_path))
+                        output_path = zip_path
+                    except Exception:
+                        return jsonify({'success': False, 'message': '文件打包失败，请重试'})
+
+                if failed_files:
+                    result_message = f'成功 {len(output_paths)} 个，失败: {", ".join(failed_files)}'
+                else:
+                    result_message = '转换成功'
 
         elif mode == '图片格式互转':
             target_fmt = request.form.get('target_format', 'png').strip().lower()
@@ -1311,6 +1403,8 @@ def convert():
                 'pdf加密': '加密失败，请检查文件是否已加密或损坏',
                 'pdf解密': '密码错误，请重新输入',
                 'word转pdf': 'Word 转 PDF 失败，请检查文件格式',
+                'doc与docx互转': 'Word 格式互转失败，请检查文件是否损坏或受密码保护',
+                'xls与xlsx互转': 'Excel 格式互转失败，请检查文件是否损坏或受密码保护',
                 'pdf转word': 'PDF 转 Word 失败，请检查文件是否受保护',
                 '图片转pdf': '图片转 PDF 失败，请检查图片格式',
                 'pdf转图片': 'PDF 转图片失败，请检查文件是否损坏',

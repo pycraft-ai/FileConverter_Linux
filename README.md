@@ -1,16 +1,18 @@
 # FileConverter (Linux/WSL 版) 🐧
 
-**多格式文件在线转换工具** — 基于 Flask 的 Web 应用，支持 **28 种**文件转换模式。
+**多格式文件在线转换工具** — 基于 Flask 的 Web 应用，支持 **31 种**文件转换模式。
 
 使用 **LibreOffice** 替代 Windows COM 组件实现 Office 文档转换，完整适配 Linux/WSL 环境。
 
 ## 功能总览 ✨
 
-### 文件转换（28 种模式）
+### 文件转换（31 种模式）
 
 | 类别 | 模式 | 说明 |
 |------|------|------|
-| 📎 Office 文档 | Word 转 PDF | .docx → .pdf |
+| 📎 Office 文档 | Word 转 PDF | .docx/.doc → .pdf |
+| | doc 与 docx 互转 | .doc ↔ .docx（自动反向转换） |
+| | xls 与 xlsx 互转 | .xls ↔ .xlsx（自动反向转换） |
 | | PDF 转 Word | .pdf → .docx |
 | | Excel 转 PDF | .xlsx/.xls → .pdf |
 | | PPT 转 PDF | .pptx/.ppt → .pdf |

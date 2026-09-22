@@ -79,12 +79,12 @@
     style.textContent = [
         '#fc-wrap{position:fixed;right:20px;bottom:20px;z-index:10000;font-family:inherit;}' +
         '#fc-btn{width:56px;height:56px;border-radius:50%;border:none;cursor:pointer;' +
-        'background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;font-size:24px;' +
+        'background:#1c1c33;color:#fff;font-size:20px;position:relative;overflow:hidden;' +
         'box-shadow:0 6px 18px rgba(102,126,234,.4);display:flex;align-items:center;' +
         'justify-content:center;transition:transform .2s;}' +
         '#fc-btn:hover{transform:scale(1.06);}' +
-        '#fc-btn .fa-times{display:none;}' +
-        '#fc-wrap.open #fc-btn .fa-comment{display:none;}' +
+        '#fc-btn .fa-times{display:none;position:relative;z-index:1;}' +
+        '#fc-wrap.open #fc-btn .fc-ball{display:none;}' +
         '#fc-wrap.open #fc-btn .fa-times{display:block;}' +
         // 面板：使用不透明实色，避免站点半透明玻璃变量导致"透明"。
         // 实色通过 fc-* 自定义变量按主题覆盖（见下方 :root/[data-theme] 规则）。
@@ -161,7 +161,50 @@
         '[data-theme="dark"]{' +
         '--fc-panel-bg:#1a1a2e;--fc-body-bg:#15152b;--fc-bot-bg:#242447;--fc-input-bg:#242447;' +
         '--fc-border:#3a3a5c;--fc-btn-border:#3a3a5c;--fc-text:#e0e0e0;--fc-tip-bg:#242447;' +
-        '--fc-scroll:#4a4a6a;}'
+        '--fc-scroll:#4a4a6a;}' +
+        // ===== 客服按钮图标：流体融合球（From Uiverse.io by andrew-manzyk）=====
+        // 类名 / 关键帧 / mask id 统一加 fc-ball 前缀，避免与页面里其它 loader 冲突
+        '#fc-btn .fc-ball{position:absolute;left:50%;top:50%;width:100px;height:100px;' +
+        'margin:-50px 0 0 -50px;transform:scale(.52);' +
+        '--color-one:#667eea;--color-two:#764ba2;' +
+        '--color-three:rgba(102,126,234,.5);--color-four:rgba(118,75,162,.5);' +
+        '--color-five:rgba(102,126,234,.25);--time-animation:2s;' +
+        'border-radius:50%;' +
+        'box-shadow:0 0 25px 0 var(--color-three),0 20px 50px 0 var(--color-four);' +
+        'animation:fc-ball-colorize calc(var(--time-animation) * 3) ease-in-out infinite;}' +
+        '#fc-btn .fc-ball::before{content:"";position:absolute;top:0;left:0;width:100px;height:100px;' +
+        'border-radius:50%;border-top:solid 1px var(--color-one);border-bottom:solid 1px var(--color-two);' +
+        'background:linear-gradient(180deg,var(--color-five),var(--color-four));' +
+        'box-shadow:inset 0 10px 10px 0 var(--color-three),inset 0 -10px 10px 0 var(--color-four);}' +
+        '#fc-btn .fc-ball .box{display:block;width:100px;height:100px;' +
+        'background:linear-gradient(180deg,var(--color-one) 30%,var(--color-two) 70%);' +
+        'mask:url(#fc-ball-clip);-webkit-mask:url(#fc-ball-clip);}' +
+        '#fc-btn .fc-ball svg{position:absolute;}' +
+        '#fc-btn .fc-ball svg mask{filter:contrast(15);' +
+        'animation:fc-ball-roundness calc(var(--time-animation) / 2) linear infinite;}' +
+        '#fc-btn .fc-ball svg polygon{filter:blur(7px);}' +
+        '#fc-btn .fc-ball svg polygon:nth-child(1){transform-origin:75% 25%;transform:rotate(90deg);}' +
+        '#fc-btn .fc-ball svg polygon:nth-child(2){transform-origin:50% 50%;' +
+        'animation:fc-ball-rotation var(--time-animation) linear infinite reverse;}' +
+        '#fc-btn .fc-ball svg polygon:nth-child(3){transform-origin:50% 60%;' +
+        'animation:fc-ball-rotation var(--time-animation) linear infinite;' +
+        'animation-delay:calc(var(--time-animation) / -3);}' +
+        '#fc-btn .fc-ball svg polygon:nth-child(4){transform-origin:40% 40%;' +
+        'animation:fc-ball-rotation var(--time-animation) linear infinite reverse;}' +
+        '#fc-btn .fc-ball svg polygon:nth-child(5){transform-origin:40% 40%;' +
+        'animation:fc-ball-rotation var(--time-animation) linear infinite reverse;' +
+        'animation-delay:calc(var(--time-animation) / -2);}' +
+        '#fc-btn .fc-ball svg polygon:nth-child(6){transform-origin:60% 40%;' +
+        'animation:fc-ball-rotation var(--time-animation) linear infinite;}' +
+        '#fc-btn .fc-ball svg polygon:nth-child(7){transform-origin:60% 40%;' +
+        'animation:fc-ball-rotation var(--time-animation) linear infinite;' +
+        'animation-delay:calc(var(--time-animation) / -1.5);}' +
+        '@keyframes fc-ball-rotation{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}' +
+        '@keyframes fc-ball-roundness{0%{filter:contrast(15)}20%{filter:contrast(3)}' +
+        '40%{filter:contrast(3)}60%{filter:contrast(15)}100%{filter:contrast(15)}}' +
+        '@keyframes fc-ball-colorize{0%{filter:hue-rotate(0deg)}20%{filter:hue-rotate(-30deg)}' +
+        '40%{filter:hue-rotate(-60deg)}60%{filter:hue-rotate(-90deg)}' +
+        '80%{filter:hue-rotate(-45deg)}100%{filter:hue-rotate(0deg)}}'
     ].join('');
     document.head.appendChild(style);
 
@@ -174,7 +217,22 @@
             '  <span class="fc-tip-tail"></span>' +
             '</div>' +
             '<button id="fc-btn" title="智能客服" aria-label="打开智能客服">' +
-            '<i class="fas fa-comment"></i><i class="fas fa-times"></i></button>' +
+            // 流体融合球图标（mask 的 id 加 fc-ball 前缀，避免与页面其它 SVG 撞 id）
+            '<span class="fc-ball">' +
+            '  <svg width="100" height="100" viewBox="0 0 100 100"><defs>' +
+            '    <mask id="fc-ball-clip">' +
+            '      <polygon points="0,0 100,0 100,100 0,100" fill="black"></polygon>' +
+            '      <polygon points="25,25 75,25 50,75" fill="white"></polygon>' +
+            '      <polygon points="50,25 75,75 25,75" fill="white"></polygon>' +
+            '      <polygon points="35,35 65,35 50,65" fill="white"></polygon>' +
+            '      <polygon points="35,35 65,35 50,65" fill="white"></polygon>' +
+            '      <polygon points="35,35 65,35 50,65" fill="white"></polygon>' +
+            '      <polygon points="35,35 65,35 50,65" fill="white"></polygon>' +
+            '    </mask>' +
+            '  </defs></svg>' +
+            '  <span class="box"></span>' +
+            '</span>' +
+            '<i class="fas fa-times"></i></button>' +
             '<div id="fc-panel">' +
             '  <div id="fc-head">' +
             '    <i class="fas fa-robot"></i>' +

@@ -222,14 +222,43 @@
     /* 结果区 */
     .result-block { display: none; margin-top: 18px; }
     .result-block.show { display: block; }
-    .progress-wrap {
-        height: 6px; background: var(--bg-progress);
-        border-radius: 3px; overflow: hidden; margin-bottom: 12px;
+    /* 转换中的 3D 箱子动画样式见 static/css/style.css（.loader-stage / .loader） */
+    .result-msg.success, .result-msg.error { animation: resultPop .28s ease; }
+    @keyframes resultPop {
+        from { opacity: 0; transform: translateY(-5px); }
+        to { opacity: 1; transform: none; }
     }
-    .progress-fill {
-        height: 100%;
-        background: linear-gradient(90deg, #667eea, #764ba2);
-        border-radius: 3px; width: 0; transition: width .25s;
+
+    /* ===== 转换中的趣味提示（文案轮播 + 小动画） ===== */
+    .fun-tip {
+        display: flex; align-items: center; justify-content: center; gap: 8px;
+        margin: 0 0 12px; padding: 10px 14px;
+        border-radius: 10px; overflow: hidden;
+        background: linear-gradient(90deg, #eef2ff, #f5f3ff, #ecfeff, #fff7ed, #eef2ff);
+        background-size: 300% 100%;
+        animation: funTipFlow 9s linear infinite;
+        font-size: 13px; font-weight: 600; color: #4f46e5;
+    }
+    .fun-tip-emoji {
+        font-size: 16px; line-height: 1;
+        display: inline-block; animation: funTipBounce 1.2s ease-in-out infinite;
+    }
+    .fun-tip-emoji, .fun-tip-text {
+        transition: opacity .28s ease, transform .28s ease;
+    }
+    .fun-tip-emoji.swap { opacity: 0; transform: translateY(-8px) scale(.8); }
+    .fun-tip-text.swap { opacity: 0; transform: translateY(8px); }
+    @keyframes funTipFlow {
+        0% { background-position: 0% 50%; }
+        100% { background-position: 300% 50%; }
+    }
+    @keyframes funTipBounce {
+        0%, 100% { transform: translateY(0) scale(1); }
+        50% { transform: translateY(-3px) scale(1.18); }
+    }
+    /* 尊重系统“减少动态效果”偏好（3D 装载动画在 style.css 中同步放慢） */
+    @media (prefers-reduced-motion: reduce) {
+        .fun-tip, .fun-tip-emoji { animation: none; }
     }
     .result-msg {
         padding: 12px 16px; border-radius: 8px;
@@ -395,7 +424,7 @@
             <i class="fas fa-th-large"></i> 选择转换模式
         </div>
         <div class="card-body">
-            {% set pdf_office_modes = ['word转pdf','pdf转word','excel转pdf','ppt转pdf','pdf转ppt','ppt转word','pdf转excel','pdf转html','csv转excel','excel转csv'] %}
+            {% set pdf_office_modes = ['word转pdf','doc与docx互转','xls与xlsx互转','pdf转word','excel转pdf','ppt转pdf','pdf转ppt','ppt转word','pdf转excel','pdf转html','csv转excel','excel转csv'] %}
             {% set image_modes = ['图片转pdf','pdf转图片','图片转ppt','图片格式互转','图片压缩','图片OCR识别'] %}
             {% set text_modes = ['md转pdf','html转pdf','md转html','PDF OCR识别','文字转语音'] %}
             {% set pdf_tool_modes = ['pdf合并','pdf分割','pdf压缩','pdf加密','pdf解密'] %}
@@ -414,6 +443,8 @@
                     {% for mode in modes if mode in cat_modes %}
                     {% set icons = {
                         'word转pdf': ('fa-file-word', '#4f46e5', '#eef2ff'),
+                        'doc与docx互转': ('fa-exchange-alt', '#4f46e5', '#eef2ff'),
+                        'xls与xlsx互转': ('fa-exchange-alt', '#16a34a', '#ecfdf5'),
                         'pdf转word': ('fa-file-pdf', '#dc2626', '#fef2f2'),
                         'excel转pdf': ('fa-file-excel', '#16a34a', '#ecfdf5'),
                         'ppt转pdf': ('fa-file-powerpoint', '#ea580c', '#fff7ed'),
@@ -626,8 +657,47 @@
 
             <!-- 结果区 -->
             <div class="result-block" id="resultArea">
-                <div class="progress-wrap">
-                    <div class="progress-fill" id="progressFill"></div>
+                <!-- 转换中：3D 箱子装载动画 + 圆形进度环（From Uiverse.io by Admin12121，样式见 style.css） -->
+                <div class="loading-panel" id="loadingPanel" style="display:none;">
+                    <div class="loader-stage">
+                        <div class="loader-scale">
+                            <div class="loader">
+                                <div class="box box0"><div></div></div>
+                                <div class="box box1"><div></div></div>
+                                <div class="box box2"><div></div></div>
+                                <div class="box box3"><div></div></div>
+                                <div class="box box4"><div></div></div>
+                                <div class="box box5"><div></div></div>
+                                <div class="box box6"><div></div></div>
+                                <div class="box box7"><div></div></div>
+                                <div class="ground"><div></div></div>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- 圆形进度环：上传阶段走 0→50%，服务端处理阶段缓升至 95%，完成时补满 -->
+                    <div class="circle-progress" id="circleProgress" role="progressbar"
+                         aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="转换进度">
+                        <!-- fill="none" 必须内联：SVG 默认填充是黑色，
+                             一旦外部样式表未加载/未生效就会变成实心黑圆 -->
+                        <svg viewBox="0 0 120 120" fill="none" aria-hidden="true">
+                            <defs>
+                                <linearGradient id="cpGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                                    <stop offset="0%" stop-color="#667eea"/>
+                                    <stop offset="100%" stop-color="#764ba2"/>
+                                </linearGradient>
+                            </defs>
+                            <circle class="cp-track" cx="60" cy="60" r="52"/>
+                            <circle class="cp-bar" id="cpBar" cx="60" cy="60" r="52"/>
+                        </svg>
+                        <div class="cp-center">
+                            <span class="cp-num" id="cpValue">0</span><span class="cp-unit">%</span>
+                        </div>
+                    </div>
+                </div>
+                <!-- 转换中趣味文案（多组轮播，由 converter.js 控制） -->
+                <div class="fun-tip" id="funTip" style="display:none;">
+                    <span class="fun-tip-emoji" id="funTipEmoji">✨</span>
+                    <span class="fun-tip-text" id="funTipText">稍等一下下，马上就好～</span>
                 </div>
                 <div class="result-msg" id="resultMessage" style="display:none;"></div>
                 <a class="btn-dl" id="downloadBtn"><i class="fas fa-download"></i> 下载文件</a>
@@ -691,5 +761,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/converter.js') }}?v=20260922b"></script>
+<script src="{{ url_for('static', filename='js/converter.js') }}?v={{ static_ver('js/converter.js') if static_ver is defined else '4' }}"></script>
 {% endblock %}

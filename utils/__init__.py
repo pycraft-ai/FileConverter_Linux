@@ -266,6 +266,10 @@ MAGIC_SIGNATURES = {
     'docx': [
         (0, b'PK\x03\x04'),    # Office Open XML (ZIP-based)
     ],
+    'doc': [
+        (0, b'\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1'),  # OLE2 (旧版 Word 97-2003)
+        (0, b'{\\rtf'),        # 以 .doc 保存的 RTF 文档
+    ],
     'xlsx': [
         (0, b'PK\x03\x04'),    # Office Open XML
     ],
@@ -392,9 +396,13 @@ def validate_file_content(filepath: str, expected_ext: str) -> tuple[bool, str]:
                 return _validate_pdf_content(filepath)
             if ext in ('docx', 'xlsx', 'pptx'):
                 return _validate_ooxml(filepath, ext)
-            if ext in ('xls', 'ppt'):
+            if ext in ('xls', 'ppt', 'doc'):
                 return _validate_ole2(filepath, ext)
             return True, ''
+
+    # 旧版 .doc 也可能是纯文本/HTML 另存而来，幻数不匹配时按文本格式兜底校验
+    if ext == 'doc':
+        return _validate_text_file(filepath, header, ext)
 
     return False, f'文件内容与 .{ext} 格式不匹配'
 
@@ -593,7 +601,7 @@ def validate_file_extension_extended(filename: str, filepath: str, expected_ext:
         (is_valid: bool, error_message: str)
     """
     # 检查扩展名
-    allowed_extensions = {'docx', 'pdf', 'jpg', 'jpeg', 'png', 'bmp', 'gif', 'tiff', 'webp',
+    allowed_extensions = {'doc', 'docx', 'pdf', 'jpg', 'jpeg', 'png', 'bmp', 'gif', 'tiff', 'webp',
                           'csv', 'xlsx', 'xls', 'pptx', 'ppt', 'txt', 'md', 'html', 'htm'}
 
     if '.' not in filename:

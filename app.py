@@ -1,4 +1,5 @@
 from flask import Flask, request, abort, send_from_directory, send_file
+from flask.sessions import SecureCookieSessionInterface
 from config import Config
 from database.db_manager import DatabaseManager
 from utils import generate_csrf_token, validate_csrf, get_client_ip, setup_logger, get_logger
@@ -41,6 +42,42 @@ app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)
 app.register_blueprint(auth_bp)
 app.register_blueprint(converter_bp)
 app.register_blueprint(admin_bp)
+
+
+# ===== session cookie 的 Secure 标记：按请求实际协议决定 =====
+# 下面 save_session 会临时改写 app.config，用锁保证并发请求之间不会互相干扰。
+_session_cookie_lock = threading.Lock()
+
+
+class _ProtoAwareSessionInterface(SecureCookieSessionInterface):
+    """按请求真实协议决定 session cookie 是否带 Secure 标记。
+
+    为什么不能只用一个全局开关：
+      SESSION_COOKIE_SECURE=True 时，浏览器在 http:// 下不会保存/发送 session
+      cookie（Chrome 还会直接忽略非安全源下发的 Secure cookie）。于是服务端
+      每次拿到的都是空 session → CSRF token 比对必然失败 → 提交转换固定 403。
+      更隐蔽的是：这个 403 发生在 before_request，业务日志里连"开始转换"
+      都不会出现，前端只看到统一兜底文案"网络错误，请重试"，极难排查。
+
+    规则：HTTPS（含 Cloudflare Tunnel / Nginx 转发的 https）→ 带 Secure，生产
+    安全性不变；纯 HTTP（本地 http://localhost:5000 调试）→ 不带，否则本地
+    根本没法用。
+    """
+
+    def save_session(self, app, session, response):
+        with _session_cookie_lock:
+            original = app.config.get('SESSION_COOKIE_SECURE')
+            if original:
+                proto = (request.headers.get('X-Forwarded-Proto') or '').lower()
+                if not (request.is_secure or 'https' in proto):
+                    app.config['SESSION_COOKIE_SECURE'] = False
+            try:
+                return super().save_session(app, session, response)
+            finally:
+                app.config['SESSION_COOKIE_SECURE'] = original
+
+
+app.session_interface = _ProtoAwareSessionInterface()
 
 
 # 自定义 Jinja2 过滤器：计算剩余时间
@@ -101,10 +138,24 @@ def inject_global_vars():
         ai_ready = _ai_enabled()
     except Exception:
         ai_ready = False
+
+    def static_ver(rel_path):
+        """按静态文件的 mtime 生成版本号，模板里用 ?v={{ static_ver('css/style.css') }}。
+
+        为什么需要：手工维护 ?v=xxx 极易漏改——改完 CSS/JS 却忘了升版本号时，
+        浏览器仍用旧缓存，典型症状是"新加的 SVG 元素没有样式，显示成浏览器
+        默认的黑色方块/大黑圆"。用文件时间戳则文件一改版本号必变，缓存必然失效。
+        """
+        try:
+            return str(int(os.path.getmtime(os.path.join(app.static_folder, rel_path))))
+        except Exception:
+            return '1'
+
     return {
         'CDN_BASE_URL': Config.CDN_BASE_URL,
         'csrf_token': generate_csrf_token,
         'ai_enabled': ai_ready,
+        'static_ver': static_ver,
     }
 
 # 全局线程池，复用线程执行异步日志写入
@@ -290,6 +341,14 @@ def before_request():
 def after_request(response):
     """请求后处理：设置安全响应头 + 异步记录访问日志（跳过静态资源）"""
     try:
+        # ===== 动态页面禁止缓存 =====
+        # HTML 由模板渲染，里面带着静态资源的版本号（?v=mtime）。一旦页面本身
+        # 被浏览器或 Cloudflare 缓存住，就会出现"改了模板/样式，刷新却没变化"
+        # 的假象：页面里的 ?v= 还是旧值，浏览器拿旧 URL 去命中缓存，资源自然不更新。
+        # 静态文件（/static/）不受影响，仍按自身 max-age 长时间缓存。
+        if not request.path.startswith('/static/'):
+            response.headers['Cache-Control'] = 'no-store, must-revalidate'
+
         # ===== 安全响应头 =====
         response.headers['X-Content-Type-Options'] = 'nosniff'
         response.headers['X-Frame-Options'] = 'DENY'
